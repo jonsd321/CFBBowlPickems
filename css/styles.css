@@ -257,6 +257,8 @@ button.band:active { filter: brightness(1.2); }
 .status.alive { background: var(--won); color: var(--night); }
 .status.out { background: var(--lost); color: var(--night); }
 .srow.me .status { box-shadow: 0 0 0 1.5px var(--night); }
+.tb { flex: none; padding: 3px 6px; box-shadow: inset 0 0 0 1px var(--line2); color: var(--dim); font: italic 800 12px/1 var(--cond); letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
+.srow.me .tb { box-shadow: inset 0 0 0 1px rgba(9, 12, 22, 0.4); color: rgba(9, 12, 22, 0.75); }
 @media (max-width: 720px) {
   .srow, .scols { grid-template-columns: 46px minmax(0, 1fr) 60px 44px; }
   .hide-sm { display: none; }
@@ -482,3 +484,18 @@ body.has-owe .a2hs { bottom: calc(82px + var(--tabbar-h) + env(safe-area-inset-b
   .ticker-run { animation: none; }
   .st.live i, .live-dot, .spinner { animation: none; }
 }
+
+/* Tiebreaker: national championship total points, at the end of the Bowls page */
+.tb-card { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; padding: 16px; background: var(--panel2); border-radius: var(--r); box-shadow: inset 4px 0 0 var(--hot); }
+.tb-text { flex: 1 1 280px; display: grid; gap: 4px; }
+.tb-text b { font: italic 800 20px/1.1 var(--cond); text-transform: uppercase; }
+.tb-text small { color: var(--dim); font: 700 13px/1.2 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; }
+.tb-text p { margin: 4px 0 0; max-width: 60ch; color: var(--dim); font-size: 14px; }
+.tb-form { display: flex; align-items: flex-end; gap: 12px; }
+.tb-form .field { margin: 0; }
+.tb-form input { width: 110px; text-align: center; font: 800 22px var(--cond); font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.tb-form input::-webkit-inner-spin-button, .tb-form input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.tb-form .btn { height: 46px; }
+.tb-note { flex-basis: 100%; margin: 0; color: var(--dim); font-size: 14px; }
+.tb-note strong { color: var(--hot); }
+.tb-note .bad { color: var(--lost); font-weight: 600; }

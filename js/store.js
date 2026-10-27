@@ -7,8 +7,9 @@
 //   join(name, password) / signIn(name, password) / signOut()
 //   signInWithGoogle()                 Firebase only; { needsName, suggested } | { cancelled }
 //   setName(uid, name)                 creates or renames the player's standings entry
-//   subscribe(season, cb, onError)     cb({ players, picks, games, adminUid, ready }) on every change
+//   subscribe(season, cb, onError)     cb({ players, picks, tiebreakers, games, adminUid, ready }) on every change
 //   setPick(uid, eventId, teamId|null, season)
+//   setTiebreaker(uid, season, eventId, points|null)   national championship total-points guess
 //   claimAdmin(uid), syncGames(season, games), removePlayer(uid)
 
 const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
@@ -165,12 +166,12 @@ class FirebaseStore {
 
   subscribe(season, cb, onError) {
     const { collection, query, where, onSnapshot, doc } = this.f;
-    const s = { players: [], picks: [], games: {}, adminUid: null };
+    const s = { players: [], picks: [], tiebreakers: [], games: {}, adminUid: null };
     const loaded = new Set();
     const listen = (key, ref, apply) => onSnapshot(ref, snap => {
       apply(snap);
       loaded.add(key);
-      cb({ ...s, ready: loaded.size === 4 });
+      cb({ ...s, ready: loaded.size === 5 });
     }, err => onError?.(friendly(err)));
 
     const unsubs = [
@@ -180,8 +181,13 @@ class FirebaseStore {
       listen('picks', query(collection(this.db, 'picks'), where('season', '==', season)), snap => {
         s.picks = snap.docs.map(d => d.data());
       }),
+      listen('tiebreakers', query(collection(this.db, 'tiebreakers'), where('season', '==', season)), snap => {
+        s.tiebreakers = snap.docs.map(d => d.data());
+      }),
       listen('games', query(collection(this.db, 'games'), where('season', '==', season)), snap => {
-        s.games = Object.fromEntries(snap.docs.map(d => [d.id, { kickoff: d.data().kickoff.toMillis(), teams: d.data().teams }]));
+        s.games = Object.fromEntries(snap.docs.map(d => [d.id, {
+          kickoff: d.data().kickoff.toMillis(), teams: d.data().teams, championship: d.data().championship === true,
+        }]));
       }),
       listen('meta', doc(this.db, 'meta', 'league'), snap => {
         s.adminUid = snap.exists() ? snap.data().adminUid : null;
@@ -195,6 +201,18 @@ class FirebaseStore {
     const ref = doc(this.db, 'picks', `${uid}_${eventId}`);
     try {
       if (teamId) await setDoc(ref, { uid, eventId, teamId, season, updated: serverTimestamp() });
+      else await deleteDoc(ref);
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  // One doc per player per season: "{uid}_{season}". The rules lock it at the title game's kickoff.
+  async setTiebreaker(uid, season, eventId, points) {
+    const { doc, setDoc, deleteDoc, serverTimestamp } = this.f;
+    const ref = doc(this.db, 'tiebreakers', `${uid}_${season}`);
+    try {
+      if (points != null) await setDoc(ref, { uid, season, eventId, points, updated: serverTimestamp() });
       else await deleteDoc(ref);
     } catch (err) {
       throw friendly(err);
@@ -221,7 +239,7 @@ class FirebaseStore {
       const batch = writeBatch(this.db);
       for (const g of games.slice(i, i + 400)) {
         batch.set(doc(this.db, 'games', g.id), {
-          season, name: g.name, teams: g.teams, kickoff: Timestamp.fromMillis(g.kickoff),
+          season, name: g.name, teams: g.teams, kickoff: Timestamp.fromMillis(g.kickoff), championship: !!g.championship,
         });
       }
       try {
@@ -251,7 +269,7 @@ class DemoStore {
   constructor() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(this.key)) || {}; } catch { /* storage blocked */ }
-    this.data = { players: {}, picks: {}, session: null, ...saved };
+    this.data = { players: {}, picks: {}, tiebreakers: {}, session: null, ...saved };
   }
 
   save() {
@@ -306,6 +324,7 @@ class DemoStore {
     const emit = () => cb({
       players: Object.entries(this.data.players).map(([uid, p]) => ({ uid, name: p.name })),
       picks: Object.values(this.data.picks).filter(p => p.season === season),
+      tiebreakers: Object.values(this.data.tiebreakers).filter(t => t.season === season),
       games: {},
       adminUid: this.data.session, // in demo mode whoever is signed in can use the Commish tools
       ready: true,
@@ -322,12 +341,20 @@ class DemoStore {
     this.save();
   }
 
+  async setTiebreaker(uid, season, eventId, points) {
+    const id = `${uid}_${season}`;
+    if (points != null) this.data.tiebreakers[id] = { uid, season, eventId, points };
+    else delete this.data.tiebreakers[id];
+    this.save();
+  }
+
   async claimAdmin() {}
   async syncGames() {}
 
   async removePlayer(uid) {
     delete this.data.players[uid];
     for (const [id, p] of Object.entries(this.data.picks)) if (p.uid === uid) delete this.data.picks[id];
+    for (const [id, t] of Object.entries(this.data.tiebreakers)) if (t.uid === uid) delete this.data.tiebreakers[id];
     this.save();
   }
 
@@ -345,12 +372,14 @@ class DemoStore {
         if (ev.winnerId) pick = Math.random() < skill ? ev.winnerId : [ev.away.id, ev.home.id].find(id => id !== ev.winnerId);
         this.data.picks[`${uid}_${ev.id}`] = { uid, eventId: ev.id, teamId: pick, season };
       }
+      const title = events.find(ev => ev.championship);
+      if (title) this.data.tiebreakers[`${uid}_${season}`] = { uid, season, eventId: title.id, points: 38 + Math.floor(Math.random() * 30) };
     }
     this.save();
   }
 
   reset() {
-    this.data = { players: {}, picks: {}, session: null };
+    this.data = { players: {}, picks: {}, tiebreakers: {}, session: null };
     this.setSession(null);
   }
 }

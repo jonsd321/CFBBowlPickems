@@ -74,6 +74,8 @@ function parseEvent(e) {
     title,
     round,
     cfp: !!round,
+    // The title game, whose total points break ties in the standings.
+    championship: /national championship/i.test(title),
     kickoff: Date.parse(e.date),
     timeTbd: e.timeValid === false || /\bTBD\b/i.test(status.detail || ''),
     state: status.state || 'pre', // pre | in | post

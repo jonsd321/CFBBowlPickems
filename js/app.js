@@ -17,6 +17,7 @@ const state = {
   user: null,
   players: [],
   picks: [],
+  tiebreakers: [], // { uid, points } guesses at the national championship's total points
   games: {},
   adminUid: null,
   dbReady: false,
@@ -28,6 +29,7 @@ const state = {
   raceTarget: null, // uid picked in the "Your race" panel
   raceShowOpen: false,
   push: { checked: false, checking: false, on: false, busy: false, error: null }, // this device's notifications
+  tb: { draft: null, saving: false, error: null }, // the tiebreaker field on the Bowls page
 };
 
 let store;
@@ -92,9 +94,28 @@ function remainingGames() {
     .map(ev => ({ ev, open: pickStatus(ev) !== 'locked' }));
 }
 
+// Tiebreaker: the closest guess at the national championship's combined final score breaks
+// ties on points once that game is final.
+const titleGame = () => state.events.find(ev => ev.championship);
+const tbFor = uid => state.tiebreakers.find(t => t.uid === uid)?.points;
+
+function titleTotal() {
+  const ev = titleGame();
+  return ev?.completed && ev.away.score != null && ev.home.score != null ? ev.away.score + ev.home.score : null;
+}
+
+// open | waiting (commissioner hasn't synced the title game) | locked | none (no title game yet)
+function tbStatus(ev = titleGame()) {
+  if (!ev || ev.canceled) return 'none';
+  if (started(ev)) return 'locked';
+  if (store.mode !== 'demo' && !state.games[ev.id]?.championship) return 'waiting';
+  return 'open';
+}
+
 function standings() {
   const rows = state.players.map(p => ({ ...p, picks: picksFor(p.uid), correct: 0, wrong: 0, pending: 0, max: 0 }));
   const remaining = remainingGames();
+  const total = titleTotal();
   for (const r of rows) {
     for (const ev of state.events) {
       const t = r.picks.get(ev.id);
@@ -108,9 +129,14 @@ function standings() {
       if (t || open) r.max++;
     }
     r.max += r.correct;
+    r.tb = tbFor(r.uid);
+    r.tbOff = total != null && r.tb != null ? Math.abs(r.tb - total) : null;
   }
-  rows.sort((a, b) => b.correct - a.correct || a.wrong - b.wrong || b.max - a.max || a.name.localeCompare(b.name));
-  rows.forEach((r, i) => { r.rank = i > 0 && rows[i - 1].correct === r.correct ? rows[i - 1].rank : i + 1; });
+  // Players without a guess lose the tiebreaker to anyone with one.
+  const off = r => (total == null ? 0 : r.tbOff ?? Infinity);
+  const tied = (a, b) => a.correct === b.correct && off(a) === off(b);
+  rows.sort((a, b) => b.correct - a.correct || (off(a) - off(b) || 0) || a.wrong - b.wrong || b.max - a.max || a.name.localeCompare(b.name));
+  rows.forEach((r, i) => { r.rank = i > 0 && tied(rows[i - 1], r) ? rows[i - 1].rank : i + 1; });
   const status = raceStatus(rows, remaining);
   for (const r of rows) Object.assign(r, status.get(r.uid), { back: rows[0].correct - r.correct });
   return { rows, remaining };
@@ -190,7 +216,9 @@ function render() {
     : view === 'me' ? renderMe()
     : view === 'commish' && !$('#admin-tab').hidden ? renderCommish()
     : renderBowls();
-  $('#view').innerHTML = html;
+  // Rebuilding the page while someone's typing in the tiebreaker would close their keyboard; the
+  // next render after they leave the field catches up.
+  if (document.activeElement?.id !== 'tb-input') $('#view').innerHTML = html;
   const owe = view === 'bowls' ? renderOwe() : '';
   setHTML($('#owe'), owe);
   document.body.classList.toggle('has-owe', !!owe);
@@ -319,7 +347,51 @@ function renderBowls() {
           <div class="tiles">${g.events.map(ev => gameTile(ev, mine)).join('')}</div>
         </section>`).join('')
       : `<div class="empty">${state.filter === 'todo' ? "You're all caught up. Every open game has a pick." : state.filter === 'live' ? 'No games are live right now.' : 'Nothing here.'}</div>`}
+      ${state.filter === 'all' || (state.filter === 'todo' && state.user && tbFor(state.user.uid) == null) ? tiebreakerCard() : ''}
     </div>`;
+}
+
+function tiebreakerCard() {
+  const ev = titleGame();
+  const status = tbStatus(ev);
+  if (status === 'none') return '';
+  const mine = state.user ? tbFor(state.user.uid) : null;
+  const total = titleTotal();
+  const when = ev.state === 'in' ? 'Live' : ev.state === 'post' ? 'Final' : status === 'open' ? fmtLock(ev) : ev.timeTbd ? 'Time TBD' : fmtWhen(ev.kickoff);
+  const sub = [hasTeams(ev) ? `${ev.away.abbr} vs ${ev.home.abbr}` : 'Matchup TBD', when].join(' · ');
+  const how = 'If players finish tied on points, the closest guess at the combined final score of the national championship breaks the tie.';
+
+  let side = '';
+  let note = '';
+  if (status === 'locked') {
+    note = mine != null
+      ? `Your guess: <strong>${mine}</strong> points${total != null ? `. Final total: <strong>${total}</strong>, off by ${Math.abs(mine - total)}.` : '.'}`
+      : `You didn't enter a guess.${total != null ? ` Final total: <strong>${total}</strong>.` : ''}`;
+  } else if (!state.user) {
+    side = `<button class="btn primary" data-action="open-auth"><span>Join to enter</span></button>`;
+  } else if (status === 'waiting') {
+    note = 'Opens once the commissioner syncs the title game.';
+  } else {
+    const { draft, saving, error } = state.tb;
+    const value = draft ?? mine ?? '';
+    side = `
+      <form class="tb-form" data-tb-form novalidate>
+        <label class="field"><span>Total points</span>
+          <input id="tb-input" type="number" inputmode="numeric" min="0" max="200" step="1" value="${esc(value)}" placeholder="52" aria-describedby="tb-note">
+        </label>
+        <button class="btn primary" type="submit" ${saving ? 'disabled' : ''}><span>${saving ? 'Saving...' : 'Save'}</span></button>
+      </form>`;
+    note = error ? `<span class="bad">${esc(error)}</span>` : mine != null ? `Saved: <strong>${mine}</strong> points. You can change it until kickoff.` : 'No guess saved yet.';
+  }
+  return `
+    <section class="day" id="tiebreaker">
+      <h2 class="label">Tiebreaker${status === 'locked' ? '<span>Locked</span>' : ''}</h2>
+      <div class="tb-card">
+        <div class="tb-text"><b>National Championship total points</b><small>${esc(sub)}</small><p>${how}</p></div>
+        ${side}
+        ${note ? `<p class="tb-note" id="tb-note">${note}</p>` : ''}
+      </div>
+    </section>`;
 }
 
 function dayNote(events, mine) {
@@ -464,6 +536,8 @@ function renderLeaderboard() {
     return `<div class="empty">No one has joined yet.${state.user ? '' : `<br><button class="btn primary" data-action="open-auth"><span>Be the first</span></button>`}</div>`;
   }
   const me = state.user && rows.find(r => r.uid === state.user.uid);
+  const showTb = tbStatus() === 'locked';
+  const tbTotal = titleTotal();
   let teaser = '';
   if (me && rows.length > 1) {
     const target = raceTarget(me, rows);
@@ -482,7 +556,7 @@ function renderLeaderboard() {
           const isMe = state.user?.uid === r.uid;
           return `<button class="srow ${isMe ? 'me' : ''} ${r.rank === 1 && finals ? 'lead' : ''} ${r.alive ? '' : 'out'}" data-action="player" data-uid="${esc(r.uid)}">
             <span class="rk">${rankLabel(r, rows)}</span>
-            <span class="nm"><span>${esc(r.name)}</span>${isMe ? '<i class="you">YOU</i>' : ''}${statusBadge(r, remaining)}</span>
+            <span class="nm"><span>${esc(r.name)}</span>${isMe ? '<i class="you">YOU</i>' : ''}${showTb && r.tb != null ? `<i class="tb" title="Tiebreaker: national championship total points">TB ${r.tb}</i>` : ''}${statusBadge(r, remaining)}</span>
             <span>${r.correct}-${r.wrong}</span><span class="dimc">${r.back || '-'}</span>
             <span class="dimc hide-sm">${pct}</span><span class="dimc hide-sm">${r.pending}</span><span class="hide-sm">${r.max}</span>
           </button>`;
@@ -490,6 +564,7 @@ function renderLeaderboard() {
       </div>
       ${teaser}
       <p class="fine">Tap a player to see their picks. Picks stay hidden until kickoff. <strong>Out</strong> means no remaining results can put that player in first.</p>
+      ${titleGame() ? `<p class="fine">Ties on points are broken by the closest guess at the national championship's total points${showTb ? ' (<strong>TB</strong>)' : ''}${tbTotal != null ? `. Final total: <strong>${tbTotal}</strong>` : ''}.</p>` : ''}
     </section>`;
 }
 
@@ -665,6 +740,7 @@ function renderMe() {
           <div><b>${me.back ? `${me.back}` : '-'}</b><small>Back of 1st</small></div>
           <div><b>${me.max}</b><small>Max possible</small></div>
         </div>` : ''}
+      ${tbStatus() === 'open' && tbFor(state.user.uid) == null ? `<button class="teaser" data-action="go-tiebreaker"><div><b>Tiebreaker not entered</b><small>Guess the national championship's total points</small></div><span>›</span></button>` : ''}
       ${todo ? `<button class="teaser" data-action="filter" data-filter="todo"><div><b>${plural(todo, 'game')} need a pick</b><small>Tap to see them on the Bowls page</small></div><span>›</span></button>` : ''}
       ${renderNotifications()}
       <h2 class="label">Your picks<span>${picked} of ${pickable.length}</span></h2>
@@ -763,7 +839,7 @@ function renderPlayerDialog(uid) {
   const items = pickItems(state.events, picks, self);
   $('#player-dialog').innerHTML = `
     <div class="sheet-head">
-      <div><h2>${esc(name)}</h2>${row ? `<p class="muted">${row.correct}-${row.wrong} · ${rankLabel(row, rows)} of ${state.players.length}</p>` : ''}</div>
+      <div><h2>${esc(name)}</h2>${row ? `<p class="muted">${row.correct}-${row.wrong} · ${rankLabel(row, rows)} of ${state.players.length}</p>` : ''}${tbLine(uid, self)}</div>
       <div class="sheet-actions">
         ${self ? '<button class="btn ghost small" data-action="sign-out"><span>Sign out</span></button>' : ''}
         <button class="btn small" data-action="close-dialog"><span>Close</span></button>
@@ -771,6 +847,13 @@ function renderPlayerDialog(uid) {
     </div>
     ${vs}
     <ul class="pd-list">${items}</ul>`;
+}
+
+function tbLine(uid, self) {
+  if (tbStatus() === 'none') return '';
+  const guess = tbFor(uid);
+  const shown = guess == null ? 'no guess' : self || tbStatus() === 'locked' ? `${guess} total points` : 'hidden until kickoff';
+  return `<p class="muted">Tiebreaker: ${shown}</p>`;
 }
 
 /* ---------- Actions ---------- */
@@ -801,14 +884,42 @@ async function makePick(eventId, teamId) {
   }
 }
 
+// The title game syncs even before its teams are set, so the tiebreaker can open (and lock).
 function gamesNeedingSync() {
   return state.events
-    .filter(hasTeams)
+    .filter(ev => hasTeams(ev) || ev.championship)
     .filter(ev => {
       const g = state.games[ev.id];
-      return !g || g.kickoff !== ev.kickoff || !g.teams.includes(ev.away.id) || !g.teams.includes(ev.home.id);
+      return !g || g.kickoff !== ev.kickoff || g.championship !== ev.championship
+        || (hasTeams(ev) && (!g.teams.includes(ev.away.id) || !g.teams.includes(ev.home.id)));
     })
-    .map(ev => ({ id: ev.id, name: ev.title, kickoff: ev.kickoff, teams: [ev.away.id, ev.home.id] }));
+    .map(ev => ({ id: ev.id, name: ev.title, kickoff: ev.kickoff, teams: hasTeams(ev) ? [ev.away.id, ev.home.id] : [], championship: ev.championship }));
+}
+
+async function saveTiebreaker(e) {
+  e.preventDefault();
+  const ev = titleGame();
+  if (!state.user) return openAuth('join');
+  if (tbStatus(ev) !== 'open') return toast('The tiebreaker is locked.', 'bad');
+  const raw = String($('#tb-input')?.value ?? state.tb.draft ?? '').trim();
+  const points = raw === '' ? null : Number(raw);
+  $('#tb-input')?.blur();
+  if (points != null && !(Number.isInteger(points) && points >= 0 && points <= 200)) {
+    state.tb.error = 'Enter a whole number from 0 to 200.';
+    return render();
+  }
+  state.tb = { draft: raw, saving: true, error: null };
+  render();
+  try {
+    await store.setTiebreaker(state.user.uid, SEASON, ev.id, points);
+    state.tb.draft = null;
+    toast(points == null ? 'Tiebreaker cleared' : `Tiebreaker saved: ${points}`);
+  } catch (err) {
+    state.tb.error = err.message;
+  } finally {
+    state.tb.saving = false;
+    render();
+  }
 }
 
 async function syncGames({ manual = false } = {}) {
@@ -975,6 +1086,11 @@ async function handleClick(e) {
       location.hash = 'race';
       return window.scrollTo({ top: 0 });
     case 'refresh': return loadEspn();
+    case 'go-tiebreaker':
+      state.filter = 'all';
+      location.hash = 'bowls';
+      render();
+      return requestAnimationFrame(() => $('#tiebreaker')?.scrollIntoView({ block: 'center' }));
     case 'close-dialog': return el.closest('dialog').close();
     case 'toggle-split': {
       const id = el.dataset.event;
@@ -1074,6 +1190,12 @@ async function main() {
     if (e.key === 'Enter' && e.target.matches('tr[data-action]')) handleClick(e);
   });
   $('#auth-form').addEventListener('submit', submitAuth);
+  document.addEventListener('submit', e => { if (e.target.matches('[data-tb-form]')) saveTiebreaker(e); });
+  document.addEventListener('input', e => {
+    if (e.target.id !== 'tb-input') return;
+    state.tb.draft = e.target.value;
+    state.tb.error = null;
+  });
   $('#name-form').addEventListener('submit', submitName);
   // A standings name is required; Esc doesn't dismiss the prompt (Sign out does).
   $('#name-dialog').addEventListener('cancel', e => e.preventDefault());

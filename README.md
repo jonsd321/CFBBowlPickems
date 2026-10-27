@@ -91,11 +91,12 @@ Notes:
 | Picks and players | Firestore collections `players`, `picks` (one doc per player per game) and `games`. |
 | Lock at kickoff | When the commissioner has the site open, their browser copies each game's kickoff time and teams from ESPN into `games`. The Firestore rules reject any pick saved after that kickoff time, so nobody can get around the lock by editing the page. |
 | Scoring | Worked out live from ESPN results: 1 point per correct pick. **Back** is points behind the leader, and **Max** is the most points a player can still reach. |
+| Tiebreaker | At the end of the Bowls page, each player guesses the national championship's total points (one doc per player per season in Firestore `tiebreakers`). Once that game is final, players tied on points are ordered by the closest guess, and anyone without a guess loses the tie. Guesses lock at the title game's kickoff and stay hidden until then. |
 | Your race | `js/race.js`. Compares you head to head with any player: the gap, the remaining games that can change it, best and worst case, and whether you can still catch them. Games that haven't kicked off count as swing games for everyone, so the comparison never reveals hidden picks. Players are marked **Out** once no set of remaining results can put them in first, and **Clinched** once no one can pass them. |
 
 ### Commissioner duties
 
-- **Visit the site after the bowl matchups are announced** (early December) and again **after each CFP round**. Each visit syncs new matchups automatically and opens them for picks. Until the commissioner visits, a game with set teams shows "picks open once the commissioner syncs it."
+- **Visit the site after the bowl matchups are announced** (early December) and again **after each CFP round**. Each visit syncs new matchups automatically and opens them for picks. Until the commissioner visits, a game with set teams shows "picks open once the commissioner syncs it." The same visit opens the tiebreaker, as soon as the national championship is on ESPN's schedule, even before its teams are set.
 - **Forgotten password:** in the Firebase console, go to **Authentication → Users**, delete that player (their login looks like `name@players.example.com`), delete their entry in Firestore `players`, and they can join again with the same name. Their old picks don't carry over to the new account, so this is best done before the bowls start. Google users can't forget a password, which is one reason to steer people that way.
 - **Removing someone** from the Commish tab hides them from the leaderboard.
 

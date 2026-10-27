@@ -64,5 +64,26 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid
         && beforeKickoff(resource.data.eventId);
     }
+
+    // Tiebreaker: each player's guess at the national championship's total points, one doc per
+    // player per season ("{uid}_{season}"). Locks at the title game's kickoff, like a pick.
+    match /tiebreakers/{tbId} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'season', 'eventId', 'points', 'updated'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.season is int
+        && tbId == request.auth.uid + '_' + string(request.resource.data.season)
+        && request.resource.data.points is int
+        && request.resource.data.points >= 0
+        && request.resource.data.points <= 200
+        && request.resource.data.eventId is string
+        && beforeKickoff(request.resource.data.eventId)
+        && game(request.resource.data.eventId).championship == true
+        && game(request.resource.data.eventId).season == request.resource.data.season;
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && beforeKickoff(resource.data.eventId);
+    }
   }
 }
