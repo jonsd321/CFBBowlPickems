@@ -16,8 +16,11 @@ Open http://localhost:8000. With no Firebase config the site runs in **demo mode
 ## Set up Firebase (about 10 minutes, free)
 
 1. Go to https://console.firebase.google.com and click **Create a project**. You can skip Google Analytics.
-2. **Build → Authentication → Get started → Sign-in method → Email/Password → Enable → Save.**
-   Players never see an email address. The site turns each name + PIN into an Email/Password login behind the scenes.
+2. **Build → Authentication → Get started → Sign-in method**, then turn on two providers:
+   - **Email/Password → Enable → Save.** Players never see an email address. The site turns each name + password into an Email/Password login behind the scenes.
+   - **Google → Enable**, pick a support email, **Save.** Players can then use "Continue with Google" and choose a display name the first time.
+
+   Then open **Authentication → Settings → Authorized domains** and add your GitHub Pages domain (e.g. `jonsd321.github.io`). Google sign-in only works on domains in that list. `localhost` is there by default.
 3. **Build → Firestore Database → Create database.** Pick a location and start in **production mode**.
 4. In Firestore, open the **Rules** tab, replace everything with the contents of [`firestore.rules`](firestore.rules), and click **Publish**.
 5. **Project settings** (gear icon) **→ General → Your apps → Web (`</>`)**. Register an app (no hosting needed) and copy the `firebaseConfig` values into `js/config.js`:
@@ -32,7 +35,7 @@ Open http://localhost:8000. With no Firebase config the site runs in **demo mode
    ```
 
    These values are meant to be public. The security rules are what protect the data.
-6. Open the site, join with your name and PIN, go to the **Commish** tab and click **Claim commissioner**. Do this before you share the link, because the first person to claim it gets it.
+6. Open the site, join (with Google or a name and password), go to the **Commish** tab and click **Claim commissioner**. Do this before you share the link, because the first person to claim it gets it.
 
 ## Publish on GitHub Pages
 
@@ -54,7 +57,7 @@ Open http://localhost:8000. With no Firebase config the site runs in **demo mode
 ### Commissioner duties
 
 - **Visit the site after the bowl matchups are announced** (early December) and again **after each CFP round**. Each visit syncs new matchups automatically and opens them for picks. Until the commissioner visits, a game with set teams shows "picks open once the commissioner syncs it."
-- **Forgotten PIN:** in the Firebase console, go to **Authentication → Users**, delete that player (their login looks like `name@players.example.com`), and they can join again with the same name. Their old picks reconnect only if they get the same account back, so this is best done before the bowls start.
+- **Forgotten password:** in the Firebase console, go to **Authentication → Users**, delete that player (their login looks like `name@players.example.com`), delete their entry in Firestore `players`, and they can join again with the same name. Their old picks don't carry over to the new account, so this is best done before the bowls start. Google users can't forget a password, which is one reason to steer people that way.
 - **Removing someone** from the Commish tab hides them from the leaderboard.
 
 ### Each new season
@@ -64,5 +67,6 @@ Change `season` in `js/config.js` (2026 means the 2026-27 bowls). Players keep t
 ## Known limits
 
 - Other players' picks are hidden in the UI until kickoff, but Firestore lets anyone read them. A determined player with browser dev tools could peek early. Fine for friends; say so if your group is competitive about it.
-- Name + PIN logins are only as strong as a 4-8 digit PIN. Firebase rate-limits guessing, but don't reuse an important PIN.
+- New name + password accounts need 8+ characters. Accounts created before passwords existed still sign in with their 4-8 digit PIN, which is easier to guess; Firebase rate-limits guessing.
+- Names are unique across Google and password accounts, but that's checked in the browser rather than enforced by the database rules.
 - ESPN's API is public but undocumented, so ESPN could change it without notice. The parsing is all in `js/espn.js`.

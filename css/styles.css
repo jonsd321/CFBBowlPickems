@@ -335,6 +335,15 @@ button.band:active { filter: brightness(1.2); }
 .sheet-head h2 { margin: 0; font: italic 800 30px/1 var(--cond); text-transform: uppercase; }
 .sheet-head p { margin: 4px 0 0; font: 700 14px var(--cond); letter-spacing: 0.06em; text-transform: uppercase; }
 .sheet-actions { display: flex; gap: 8px; }
+/* Google's button keeps Google's look: white, standard G, plain label. */
+.google-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 46px;
+  border-radius: 4px; background: #fff; color: #1f1f1f; font: 600 16px/1 var(--sans);
+}
+.google-btn svg { width: 20px; height: 20px; }
+.google-btn:hover { background: #f1f3f4; }
+.or { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--dim); font: 700 12px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; }
+.or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line2); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
 .seg button { height: 38px; transform: skewX(-12deg); background: var(--panel2); font: italic 800 16px/1 var(--cond); letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
 .seg button > span { display: inline-block; transform: skewX(12deg); }

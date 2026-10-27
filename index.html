@@ -5,14 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#090c16">
   <title>CFB Bowl Pickems</title>
+  <!-- Browser tab / bookmark icons. Real files, because Safari ignores SVG favicons and a GitHub
+       Pages project site has no /favicon.ico at the domain root. Bump ?v= when the icons change
+       so browsers and phones fetch the new ones instead of their cached copies. -->
+  <link rel="icon" href="favicon.ico?v=2" sizes="48x48">
+  <link rel="icon" href="icons/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png?v=2" type="image/png" sizes="32x32">
+  <link rel="icon" href="icons/favicon-16.png?v=2" type="image/png" sizes="16x16">
   <!-- Home Screen app: name, icon, and full-screen launch on iPhone and Android -->
-  <link rel="manifest" href="site.webmanifest">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest?v=2">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2" sizes="180x180">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bowl Pickems">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23ffd23f'/%3E%3Cellipse cx='32' cy='32' rx='22' ry='13' transform='rotate(-35 32 32)' fill='%23090c16'/%3E%3Cpath d='M24 40 40 24M28 31l5 5M31 28l5 5' stroke='%23ffd23f' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Barlow:wght@500;600;700&display=swap">
@@ -56,6 +62,13 @@
 
   <dialog id="auth-dialog" class="sheet">
     <form id="auth-form" data-mode="join" novalidate>
+      <div id="google-area">
+        <button type="button" class="google-btn" data-action="google">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+          Continue with Google
+        </button>
+        <div class="or"><span>or use a name and password</span></div>
+      </div>
       <div class="seg" role="group" aria-label="Join or sign in">
         <button type="button" data-mode="join" class="is-active"><span>Join</span></button>
         <button type="button" data-mode="signin"><span>Sign in</span></button>
@@ -65,14 +78,30 @@
         <input id="auth-name" name="name" maxlength="20" autocomplete="username" autocapitalize="words" required>
       </label>
       <label class="field">
-        <span>PIN</span>
-        <input id="auth-pin" name="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required>
+        <span>Password</span>
+        <input id="auth-password" name="password" type="password" maxlength="64" autocomplete="new-password" required>
       </label>
       <p id="auth-hint" class="fine"></p>
       <p id="auth-error" class="form-error" hidden></p>
       <div class="row end">
         <button type="button" class="btn ghost" data-action="close-dialog">Cancel</button>
         <button type="submit" class="btn primary">Join the pool</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- First Google sign-in: choose the name the standings show. -->
+  <dialog id="name-dialog" class="sheet">
+    <form id="name-form" novalidate>
+      <div class="sheet-head"><div><h2>Pick your name</h2><p class="muted">This is how you'll show up in the standings.</p></div></div>
+      <label class="field">
+        <span>Name</span>
+        <input id="name-input" name="name" maxlength="20" autocomplete="nickname" autocapitalize="words" required>
+      </label>
+      <p id="name-error" class="form-error" hidden></p>
+      <div class="row end">
+        <button type="button" class="btn ghost" data-action="sign-out"><span>Sign out</span></button>
+        <button type="submit" class="btn primary"><span>Save</span></button>
       </div>
     </form>
   </dialog>

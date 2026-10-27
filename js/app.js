@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { fetchBowls } from './espn.js';
-import { createStore } from './store.js';
+import { createStore, nameKey } from './store.js';
 import { headToHead, raceStatus } from './race.js';
 import { bowlLogo, PLAYOFF_LOGO } from './bowl-logos.js';
 
@@ -760,20 +760,23 @@ function openAuth(mode = 'join') {
   const dlg = $('#auth-dialog');
   setAuthMode(mode);
   $('#auth-error').hidden = true;
+  $('#google-area').hidden = store.mode !== 'firebase'; // Google sign-in needs the real backend
   dlg.showModal();
-  dlg.querySelector('input[name=name]').focus();
 }
 
 function setAuthMode(mode) {
   const form = $('#auth-form');
   form.dataset.mode = mode;
   form.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('is-active', b.dataset.mode === mode));
-  form.querySelector('[type=submit]').textContent = mode === 'join' ? 'Join the pool' : 'Sign in';
-  form.querySelector('input[name=pin]').autocomplete = mode === 'join' ? 'new-password' : 'current-password';
+  form.querySelector('[type=submit]').innerHTML = `<span>${mode === 'join' ? 'Join the pool' : 'Sign in'}</span>`;
+  form.querySelector('input[name=password]').autocomplete = mode === 'join' ? 'new-password' : 'current-password';
   $('#auth-hint').textContent = mode === 'join'
-    ? 'Choose the name everyone will see on the leaderboard and a 4-8 digit PIN. You\'ll need both to sign in on another device.'
-    : 'Use the same name and PIN you joined with.';
+    ? 'Choose the name everyone will see in the standings and a password of at least 8 characters. You\'ll need both to sign in on another device.'
+    : 'Use the name and password you joined with. If you joined with a PIN, enter the PIN.';
 }
+
+// Names are unique across Google and password accounts (same rules as store's nameKey).
+const nameTaken = (name, exceptUid) => state.players.some(p => p.uid !== exceptUid && nameKey(p.name) === nameKey(name));
 
 async function submitAuth(e) {
   e.preventDefault();
@@ -783,11 +786,71 @@ async function submitAuth(e) {
   const err = $('#auth-error');
   btn.disabled = true;
   err.hidden = true;
+  state.authBusy = true;
   try {
-    if (form.dataset.mode === 'join') await store.join(data.get('name'), data.get('pin'));
-    else await store.signIn(data.get('name'), data.get('pin'));
+    if (form.dataset.mode === 'join') {
+      if (nameTaken(data.get('name'))) throw new Error('That name is taken. Sign in instead, or choose a different name.');
+      await store.join(data.get('name'), data.get('password'));
+    } else {
+      await store.signIn(data.get('name'), data.get('password'));
+    }
     form.reset();
     $('#auth-dialog').close();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  } finally {
+    state.authBusy = false;
+    btn.disabled = false;
+    checkNeedsName();
+  }
+}
+
+async function googleSignIn() {
+  const err = $('#auth-error');
+  err.hidden = true;
+  state.authBusy = true;
+  try {
+    const result = await store.signInWithGoogle();
+    if (result.cancelled) return;
+    $('#auth-dialog').close();
+    if (result.needsName) openNameDialog(result.suggested);
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  } finally {
+    state.authBusy = false;
+  }
+}
+
+// Shown after a first Google sign-in, or whenever a signed-in account has no standings entry.
+function openNameDialog(suggested = '') {
+  const dlg = $('#name-dialog');
+  if (dlg.open) return;
+  const input = $('#name-input');
+  input.value = suggested.trim().slice(0, 20);
+  $('#name-error').hidden = true;
+  dlg.showModal();
+  input.select();
+}
+
+function checkNeedsName() {
+  if (!state.user || !state.dbReady || state.authBusy || store.mode !== 'firebase') return;
+  if (!state.players.some(p => p.uid === state.user.uid)) openNameDialog();
+}
+
+async function submitName(e) {
+  e.preventDefault();
+  const name = $('#name-input').value;
+  const err = $('#name-error');
+  const btn = e.currentTarget.querySelector('[type=submit]');
+  err.hidden = true;
+  btn.disabled = true;
+  try {
+    if (nameTaken(name, state.user.uid)) throw new Error('That name is taken. Choose a different one.');
+    await store.setName(state.user.uid, name);
+    $('#name-dialog').close();
+    toast(`Welcome, ${name.trim()}!`);
   } catch (ex) {
     err.textContent = ex.message;
     err.hidden = false;
@@ -814,6 +877,7 @@ async function handleClick(e) {
       return;
     }
     case 'open-auth': return openAuth('join');
+    case 'google': return googleSignIn();
     case 'me':
       location.hash = 'me';
       return window.scrollTo({ top: 0 });
@@ -909,6 +973,9 @@ async function main() {
     if (e.key === 'Enter' && e.target.matches('tr[data-action]')) handleClick(e);
   });
   $('#auth-form').addEventListener('submit', submitAuth);
+  $('#name-form').addEventListener('submit', submitName);
+  // A standings name is required; Esc doesn't dismiss the prompt (Sign out does).
+  $('#name-dialog').addEventListener('cancel', e => e.preventDefault());
   $('#auth-form').addEventListener('click', e => {
     const b = e.target.closest('button[data-mode]');
     if (b) setAuthMode(b.dataset.mode);
@@ -918,13 +985,16 @@ async function main() {
   store.onUser(user => {
     state.user = user;
     state.pending.clear();
+    if (!user && $('#name-dialog').open) $('#name-dialog').close();
     render();
     syncGames();
+    checkNeedsName();
   });
   store.subscribe(SEASON, data => {
     Object.assign(state, data, { dbReady: data.ready, dbError: null });
     render();
     syncGames();
+    checkNeedsName();
   }, err => {
     state.dbError = err.code === 'permission-denied'
       ? 'The database refused access. Make sure the rules in firestore.rules are published (see README).'

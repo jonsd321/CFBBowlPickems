@@ -4,7 +4,9 @@
 //
 // Interface:
 //   onUser(cb)                         cb({ uid } | null) whenever sign-in state changes
-//   join(name, pin) / signIn(name, pin) / signOut()
+//   join(name, password) / signIn(name, password) / signOut()
+//   signInWithGoogle()                 Firebase only; { needsName, suggested } | { cancelled }
+//   setName(uid, name)                 creates or renames the player's standings entry
 //   subscribe(season, cb, onError)     cb({ players, picks, games, adminUid, ready }) on every change
 //   setPick(uid, eventId, teamId|null, season)
 //   claimAdmin(uid), syncGames(season, games), removePlayer(uid)
@@ -20,16 +22,26 @@ export function cleanName(name) {
   return String(name || '').trim().replace(/\s+/g, ' ');
 }
 
-function validate(name, pin) {
+export function validateName(name) {
   const n = cleanName(name);
   if (n.length < 2 || n.length > 20) throw new Error('Name must be 2-20 characters.');
   if (!/^[\p{L}\p{N} .'-]+$/u.test(n)) throw new Error('Name can use letters, numbers, spaces, periods, apostrophes and hyphens.');
-  if (!/^\d{4,8}$/.test(String(pin))) throw new Error('PIN must be 4-8 digits.');
+  return n;
+}
+
+// New accounts need an 8+ character password. Signing in also accepts the 4-8 digit PINs
+// that earlier accounts were created with.
+function validate(name, password, { joining }) {
+  const n = validateName(name);
+  const p = String(password || '');
+  if (joining && p.length < 8) throw new Error('Password must be at least 8 characters.');
+  if (!joining && p.length < 4) throw new Error('Enter your password (or the PIN you joined with).');
+  if (p.length > 64) throw new Error('Password must be 64 characters or fewer.');
   return n;
 }
 
 // Case- and punctuation-insensitive, so "Jon D." and "jon d" are the same player.
-function nameKey(name) {
+export function nameKey(name) {
   const n = cleanName(name).toLowerCase();
   const ascii = n.normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return ascii || [...n].map(ch => ch.codePointAt(0).toString(16)).join('-');
@@ -39,13 +51,16 @@ function friendly(err) {
   const code = err?.code || '';
   const messages = {
     'auth/email-already-in-use': 'That name is taken. Sign in instead, or choose a different name.',
-    'auth/invalid-credential': 'Name or PIN is wrong.',
-    'auth/invalid-login-credentials': 'Name or PIN is wrong.',
-    'auth/wrong-password': 'Name or PIN is wrong.',
-    'auth/user-not-found': 'Name or PIN is wrong.',
+    'auth/invalid-credential': 'Name or password is wrong.',
+    'auth/invalid-login-credentials': 'Name or password is wrong.',
+    'auth/wrong-password': 'Name or password is wrong.',
+    'auth/user-not-found': 'Name or password is wrong.',
     'auth/too-many-requests': 'Too many tries. Wait a few minutes and try again.',
-    'auth/operation-not-allowed': 'Email/Password sign-in is not enabled in Firebase yet (see README).',
-    'auth/configuration-not-found': 'Email/Password sign-in is not enabled in Firebase yet (see README).',
+    'auth/operation-not-allowed': 'That sign-in method isn\'t turned on in Firebase yet (see README).',
+    'auth/configuration-not-found': 'That sign-in method isn\'t turned on in Firebase yet (see README).',
+    'auth/unauthorized-domain': 'Google sign-in isn\'t allowed on this web address yet. Add it under Authentication > Settings > Authorized domains in Firebase (see README).',
+    'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.',
+    'auth/account-exists-with-different-credential': 'That Google account is already linked to a different sign-in.',
     'auth/network-request-failed': 'Network error. Check your connection.',
     'permission-denied': 'The server refused that change. Picks lock at kickoff.',
     'unavailable': 'Can\'t reach the database right now. Retrying...',
@@ -76,30 +91,58 @@ class FirebaseStore {
     return this;
   }
 
-  // Name + PIN ride on Firebase Email/Password auth: the name becomes a placeholder
-  // address on a reserved domain (nothing is ever emailed) and the PIN the password.
+  // Name + password ride on Firebase Email/Password auth: the name becomes a placeholder
+  // address on a reserved domain (nothing is ever emailed). The wrapper around the password is
+  // how the original PIN accounts were created, so those PINs keep working unchanged.
   email(name) { return `${nameKey(name)}@players.example.com`; }
-  password(pin) { return `bp-${pin}-pin`; }
+  password(pw) { return `bp-${pw}-pin`; }
 
   onUser(cb) {
     return this.a.onAuthStateChanged(this.auth, u => cb(u ? { uid: u.uid } : null));
   }
 
-  async join(name, pin) {
-    const n = validate(name, pin);
+  async join(name, password) {
+    const n = validate(name, password, { joining: true });
     try {
-      const cred = await this.a.createUserWithEmailAndPassword(this.auth, this.email(n), this.password(pin));
+      const cred = await this.a.createUserWithEmailAndPassword(this.auth, this.email(n), this.password(password));
       await this.ensurePlayer(cred.user.uid, n);
     } catch (err) {
       throw friendly(err);
     }
   }
 
-  async signIn(name, pin) {
-    const n = validate(name, pin);
+  async signIn(name, password) {
+    const n = validate(name, password, { joining: false });
     try {
-      const cred = await this.a.signInWithEmailAndPassword(this.auth, this.email(n), this.password(pin));
+      const cred = await this.a.signInWithEmailAndPassword(this.auth, this.email(n), this.password(password));
       await this.ensurePlayer(cred.user.uid, n);
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  // Pop-up rather than redirect: redirects break when the site (GitHub Pages) and Firebase's
+  // sign-in page are on different domains, which browsers now treat as third-party storage.
+  async signInWithGoogle() {
+    const { GoogleAuthProvider, signInWithPopup } = this.a;
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      const cred = await signInWithPopup(this.auth, provider);
+      const { doc, getDoc } = this.f;
+      const exists = (await getDoc(doc(this.db, 'players', cred.user.uid))).exists();
+      return { needsName: !exists, suggested: cred.user.displayName || '' };
+    } catch (err) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') return { cancelled: true };
+      throw friendly(err);
+    }
+  }
+
+  async setName(uid, name) {
+    const n = validateName(name);
+    const { doc, setDoc, serverTimestamp } = this.f;
+    try {
+      await setDoc(doc(this.db, 'players', uid), { name: n, joined: serverTimestamp() });
     } catch (err) {
       throw friendly(err);
     }
@@ -228,19 +271,26 @@ class DemoStore {
     return Object.entries(this.data.players).find(([, p]) => p.key === key);
   }
 
-  async join(name, pin) {
-    const n = validate(name, pin);
+  async join(name, password) {
+    const n = validate(name, password, { joining: true });
     if (this.findByName(n)) throw new Error('That name is taken. Sign in instead, or choose a different name.');
     const uid = 'demo_' + Math.random().toString(36).slice(2, 10);
-    this.data.players[uid] = { name: n, key: nameKey(n), pin: String(pin) };
+    this.data.players[uid] = { name: n, key: nameKey(n), pin: String(password) };
     this.setSession(uid);
   }
 
-  async signIn(name, pin) {
-    validate(name, pin);
+  async signIn(name, password) {
+    validate(name, password, { joining: false });
     const found = this.findByName(name);
-    if (!found || found[1].pin !== String(pin)) throw new Error('Name or PIN is wrong.');
+    if (!found || found[1].pin !== String(password)) throw new Error('Name or password is wrong.');
     this.setSession(found[0]);
+  }
+
+  async setName(uid, name) {
+    const n = validateName(name);
+    if (!this.data.players[uid]) return;
+    Object.assign(this.data.players[uid], { name: n, key: nameKey(n) });
+    this.save();
   }
 
   async signOut() {
