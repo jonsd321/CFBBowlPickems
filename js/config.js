@@ -29,7 +29,7 @@ export const CONFIG = {
   // Worker; leave it empty to hide the Notifications section. The public key must match
   // VAPID_PUBLIC_KEY in worker/wrangler.toml.
   push: {
-    workerUrl: '',
+    workerUrl: 'https://cfb-bowl-pickems-push.jonsd321.workers.dev',
     vapidPublicKey: 'BDPT2xfgE70KO2JNaetrvPqQwK6YcP_B7j9aAt_77GJl21jQDK3kfAitozuCkDDlYyjQBJRQ8kEkYhtk99_4PqA',
   },
 };
