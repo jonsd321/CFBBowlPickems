@@ -1,6 +1,6 @@
 // League settings. This is the only file you should need to edit.
 export const CONFIG = {
-  leagueName: 'Bowl Pool',
+  leagueName: 'CFB Bowl Pickems',
 
   // ESPN's "season" for the bowls: 2026 = the 2026-27 bowl season (Dec 2026 - Jan 2027).
   // Override in the browser with ?season=2025 to preview a finished season.
