@@ -62,7 +62,9 @@ code { font-size: 0.9em; background: var(--panel2); padding: 1px 5px; border-rad
 .tab.is-active { background: var(--panel2); color: var(--hot); box-shadow: inset 0 -3px 0 var(--hot); }
 .tab-me { display: none; }
 .user-area { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.me { display: flex; align-items: center; gap: 10px; font: 700 15px/1 var(--cond); letter-spacing: 0.06em; text-transform: uppercase; }
+.me { display: flex; align-items: center; gap: 10px; font: 700 15px/1 var(--cond); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+/* Narrow phones: the season box only earns its space when it says LIVE. */
+@media (max-width: 420px) { .bug:not(.live) > span { display: none; } }
 .me em { font-style: normal; color: var(--hot); }
 .me-name { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .avatar {

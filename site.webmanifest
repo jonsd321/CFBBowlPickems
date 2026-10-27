@@ -1,6 +1,6 @@
 {
-  "name": "Bowl Pool",
-  "short_name": "Bowl Pool",
+  "name": "CFB Bowl Pickems",
+  "short_name": "Bowl Pickems",
   "description": "College football bowl pick'em: pick every bowl winner and track the standings.",
   "start_url": "./",
   "scope": "./",

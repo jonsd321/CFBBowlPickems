@@ -1,4 +1,4 @@
-# Bowl Pool
+# CFB Bowl Pickems
 
 A college football bowl pick'em site. Bowl names, teams, logos, kickoff times, live scores and final results come from ESPN's public API. Players pick a winner for every bowl, picks lock at kickoff, and a leaderboard tracks who's ahead. Every correct pick is worth 1 point.
 

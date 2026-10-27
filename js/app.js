@@ -199,6 +199,7 @@ function renderHeader(view) {
   $('#league-name').textContent = CONFIG.leagueName;
   const live = state.events.some(ev => ev.state === 'in');
   $('#season-label').textContent = live && view === 'bowls' ? 'Live' : `${SEASON}-${String(SEASON + 1).slice(2)} Bowls`;
+  $('.bug').classList.toggle('live', live && view === 'bowls');
 
   const area = $('#user-area');
   if (state.user) {
