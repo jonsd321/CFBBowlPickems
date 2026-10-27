@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090c16">
+  <title>Bowl Pool</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23ffd23f'/%3E%3Cellipse cx='32' cy='32' rx='22' ry='13' transform='rotate(-35 32 32)' fill='%23090c16'/%3E%3Cpath d='M24 40 40 24M28 31l5 5M31 28l5 5' stroke='%23ffd23f' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Barlow:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="top">
+    <a class="bug" href="#bowls" aria-label="Bowl Pool home">
+      <b><span id="league-name">Bowl Pool</span></b>
+      <span><span id="season-label"></span></span>
+    </a>
+
+    <!-- Tabs sit in the header on wide screens and become a bottom tab bar on phones. -->
+    <nav class="tabs" aria-label="Sections">
+      <a class="tab" href="#bowls" data-view="bowls">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="5.5" transform="rotate(-35 12 12)"/><path d="M9 15l6-6M10.5 11.5l2 2"/></svg><span>Bowls</span>
+      </a>
+      <a class="tab" href="#leaderboard" data-view="leaderboard">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg><span>Standings</span>
+      </a>
+      <a class="tab" href="#race" data-view="race">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg><span>Race</span>
+      </a>
+      <a class="tab" href="#commish" data-view="commish" id="admin-tab" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Commish</span>
+      </a>
+      <button class="tab tab-me" type="button" data-action="me">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span>Me</span>
+      </button>
+    </nav>
+
+    <div id="user-area" class="user-area"></div>
+  </header>
+
+  <div id="ticker"></div>
+  <div id="banners" class="wrap"></div>
+  <!-- Picks-left reminder: top of the Bowls page on wide screens, pinned above the tab bar on phones. -->
+  <div id="owe"></div>
+  <main id="view" class="wrap"></main>
+  <footer class="site-foot wrap">Schedules, scores and team logos from ESPN. Bowl logos from Wikipedia.</footer>
+
+  <dialog id="auth-dialog" class="sheet">
+    <form id="auth-form" data-mode="join" novalidate>
+      <div class="seg" role="group" aria-label="Join or sign in">
+        <button type="button" data-mode="join" class="is-active"><span>Join</span></button>
+        <button type="button" data-mode="signin"><span>Sign in</span></button>
+      </div>
+      <label class="field">
+        <span>Name</span>
+        <input id="auth-name" name="name" maxlength="20" autocomplete="username" autocapitalize="words" required>
+      </label>
+      <label class="field">
+        <span>PIN</span>
+        <input id="auth-pin" name="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required>
+      </label>
+      <p id="auth-hint" class="fine"></p>
+      <p id="auth-error" class="form-error" hidden></p>
+      <div class="row end">
+        <button type="button" class="btn ghost" data-action="close-dialog">Cancel</button>
+        <button type="submit" class="btn primary">Join the pool</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="player-dialog" class="sheet wide"></dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

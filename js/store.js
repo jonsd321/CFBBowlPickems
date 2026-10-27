@@ -1,0 +1,298 @@
+// Player accounts and picks. Two interchangeable backends with the same interface:
+//   FirebaseStore - shared league data in Firestore (the real thing)
+//   DemoStore     - everything in this browser's localStorage (when Firebase isn't configured)
+//
+// Interface:
+//   onUser(cb)                         cb({ uid } | null) whenever sign-in state changes
+//   join(name, pin) / signIn(name, pin) / signOut()
+//   subscribe(season, cb, onError)     cb({ players, picks, games, adminUid, ready }) on every change
+//   setPick(uid, eventId, teamId|null, season)
+//   claimAdmin(uid), syncGames(season, games), removePlayer(uid)
+
+const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
+
+export async function createStore(config, { forceDemo = false } = {}) {
+  if (!forceDemo && config.firebase?.apiKey) return new FirebaseStore(config.firebase).init();
+  return new DemoStore();
+}
+
+export function cleanName(name) {
+  return String(name || '').trim().replace(/\s+/g, ' ');
+}
+
+function validate(name, pin) {
+  const n = cleanName(name);
+  if (n.length < 2 || n.length > 20) throw new Error('Name must be 2-20 characters.');
+  if (!/^[\p{L}\p{N} .'-]+$/u.test(n)) throw new Error('Name can use letters, numbers, spaces, periods, apostrophes and hyphens.');
+  if (!/^\d{4,8}$/.test(String(pin))) throw new Error('PIN must be 4-8 digits.');
+  return n;
+}
+
+// Case- and punctuation-insensitive, so "Jon D." and "jon d" are the same player.
+function nameKey(name) {
+  const n = cleanName(name).toLowerCase();
+  const ascii = n.normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return ascii || [...n].map(ch => ch.codePointAt(0).toString(16)).join('-');
+}
+
+function friendly(err) {
+  const code = err?.code || '';
+  const messages = {
+    'auth/email-already-in-use': 'That name is taken. Sign in instead, or choose a different name.',
+    'auth/invalid-credential': 'Name or PIN is wrong.',
+    'auth/invalid-login-credentials': 'Name or PIN is wrong.',
+    'auth/wrong-password': 'Name or PIN is wrong.',
+    'auth/user-not-found': 'Name or PIN is wrong.',
+    'auth/too-many-requests': 'Too many tries. Wait a few minutes and try again.',
+    'auth/operation-not-allowed': 'Email/Password sign-in is not enabled in Firebase yet (see README).',
+    'auth/configuration-not-found': 'Email/Password sign-in is not enabled in Firebase yet (see README).',
+    'auth/network-request-failed': 'Network error. Check your connection.',
+    'permission-denied': 'The server refused that change. Picks lock at kickoff.',
+    'unavailable': 'Can\'t reach the database right now. Retrying...',
+  };
+  const e = new Error(messages[code] || err?.message || String(err));
+  e.code = code;
+  return e;
+}
+
+class FirebaseStore {
+  mode = 'firebase';
+
+  constructor(firebaseConfig) {
+    this.firebaseConfig = firebaseConfig;
+  }
+
+  async init() {
+    const [app, auth, fs] = await Promise.all([
+      import(`${FIREBASE_SDK}/firebase-app.js`),
+      import(`${FIREBASE_SDK}/firebase-auth.js`),
+      import(`${FIREBASE_SDK}/firebase-firestore.js`),
+    ]);
+    this.a = auth;
+    this.f = fs;
+    const instance = app.initializeApp(this.firebaseConfig);
+    this.auth = auth.getAuth(instance);
+    this.db = fs.getFirestore(instance);
+    return this;
+  }
+
+  // Name + PIN ride on Firebase Email/Password auth: the name becomes a placeholder
+  // address on a reserved domain (nothing is ever emailed) and the PIN the password.
+  email(name) { return `${nameKey(name)}@players.example.com`; }
+  password(pin) { return `bp-${pin}-pin`; }
+
+  onUser(cb) {
+    return this.a.onAuthStateChanged(this.auth, u => cb(u ? { uid: u.uid } : null));
+  }
+
+  async join(name, pin) {
+    const n = validate(name, pin);
+    try {
+      const cred = await this.a.createUserWithEmailAndPassword(this.auth, this.email(n), this.password(pin));
+      await this.ensurePlayer(cred.user.uid, n);
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  async signIn(name, pin) {
+    const n = validate(name, pin);
+    try {
+      const cred = await this.a.signInWithEmailAndPassword(this.auth, this.email(n), this.password(pin));
+      await this.ensurePlayer(cred.user.uid, n);
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  async ensurePlayer(uid, name) {
+    const { doc, getDoc, setDoc, serverTimestamp } = this.f;
+    const ref = doc(this.db, 'players', uid);
+    if (!(await getDoc(ref)).exists()) await setDoc(ref, { name, joined: serverTimestamp() });
+  }
+
+  signOut() {
+    return this.a.signOut(this.auth);
+  }
+
+  subscribe(season, cb, onError) {
+    const { collection, query, where, onSnapshot, doc } = this.f;
+    const s = { players: [], picks: [], games: {}, adminUid: null };
+    const loaded = new Set();
+    const listen = (key, ref, apply) => onSnapshot(ref, snap => {
+      apply(snap);
+      loaded.add(key);
+      cb({ ...s, ready: loaded.size === 4 });
+    }, err => onError?.(friendly(err)));
+
+    const unsubs = [
+      listen('players', collection(this.db, 'players'), snap => {
+        s.players = snap.docs.map(d => ({ uid: d.id, name: d.data().name }));
+      }),
+      listen('picks', query(collection(this.db, 'picks'), where('season', '==', season)), snap => {
+        s.picks = snap.docs.map(d => d.data());
+      }),
+      listen('games', query(collection(this.db, 'games'), where('season', '==', season)), snap => {
+        s.games = Object.fromEntries(snap.docs.map(d => [d.id, { kickoff: d.data().kickoff.toMillis(), teams: d.data().teams }]));
+      }),
+      listen('meta', doc(this.db, 'meta', 'league'), snap => {
+        s.adminUid = snap.exists() ? snap.data().adminUid : null;
+      }),
+    ];
+    return () => unsubs.forEach(u => u());
+  }
+
+  async setPick(uid, eventId, teamId, season) {
+    const { doc, setDoc, deleteDoc, serverTimestamp } = this.f;
+    const ref = doc(this.db, 'picks', `${uid}_${eventId}`);
+    try {
+      if (teamId) await setDoc(ref, { uid, eventId, teamId, season, updated: serverTimestamp() });
+      else await deleteDoc(ref);
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  async claimAdmin(uid) {
+    const { doc, setDoc } = this.f;
+    try {
+      await setDoc(doc(this.db, 'meta', 'league'), { adminUid: uid });
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+
+  // Writes the trusted kickoff time + teams for each game. Firestore rules check
+  // every pick against these, so a pick can't be saved after kickoff.
+  async syncGames(season, games) {
+    const { doc, writeBatch, Timestamp } = this.f;
+    for (let i = 0; i < games.length; i += 400) {
+      const batch = writeBatch(this.db);
+      for (const g of games.slice(i, i + 400)) {
+        batch.set(doc(this.db, 'games', g.id), {
+          season, name: g.name, teams: g.teams, kickoff: Timestamp.fromMillis(g.kickoff),
+        });
+      }
+      try {
+        await batch.commit();
+      } catch (err) {
+        throw friendly(err);
+      }
+    }
+  }
+
+  async removePlayer(uid) {
+    const { doc, deleteDoc } = this.f;
+    try {
+      await deleteDoc(doc(this.db, 'players', uid));
+    } catch (err) {
+      throw friendly(err);
+    }
+  }
+}
+
+class DemoStore {
+  mode = 'demo';
+  key = 'bowlpool-demo-v1';
+  userCbs = new Set();
+  subs = new Set();
+
+  constructor() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(this.key)) || {}; } catch { /* storage blocked */ }
+    this.data = { players: {}, picks: {}, session: null, ...saved };
+  }
+
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch { /* storage blocked */ }
+    this.subs.forEach(fn => fn());
+  }
+
+  setSession(uid) {
+    this.data.session = uid;
+    this.save();
+    this.userCbs.forEach(cb => cb(uid ? { uid } : null));
+  }
+
+  onUser(cb) {
+    this.userCbs.add(cb);
+    cb(this.data.session && this.data.players[this.data.session] ? { uid: this.data.session } : null);
+    return () => this.userCbs.delete(cb);
+  }
+
+  findByName(name) {
+    const key = nameKey(name);
+    return Object.entries(this.data.players).find(([, p]) => p.key === key);
+  }
+
+  async join(name, pin) {
+    const n = validate(name, pin);
+    if (this.findByName(n)) throw new Error('That name is taken. Sign in instead, or choose a different name.');
+    const uid = 'demo_' + Math.random().toString(36).slice(2, 10);
+    this.data.players[uid] = { name: n, key: nameKey(n), pin: String(pin) };
+    this.setSession(uid);
+  }
+
+  async signIn(name, pin) {
+    validate(name, pin);
+    const found = this.findByName(name);
+    if (!found || found[1].pin !== String(pin)) throw new Error('Name or PIN is wrong.');
+    this.setSession(found[0]);
+  }
+
+  async signOut() {
+    this.setSession(null);
+  }
+
+  subscribe(season, cb) {
+    const emit = () => cb({
+      players: Object.entries(this.data.players).map(([uid, p]) => ({ uid, name: p.name })),
+      picks: Object.values(this.data.picks).filter(p => p.season === season),
+      games: {},
+      adminUid: this.data.session, // in demo mode whoever is signed in can use the Commish tools
+      ready: true,
+    });
+    this.subs.add(emit);
+    queueMicrotask(emit);
+    return () => this.subs.delete(emit);
+  }
+
+  async setPick(uid, eventId, teamId, season) {
+    const id = `${uid}_${eventId}`;
+    if (teamId) this.data.picks[id] = { uid, eventId, teamId, season };
+    else delete this.data.picks[id];
+    this.save();
+  }
+
+  async claimAdmin() {}
+  async syncGames() {}
+
+  async removePlayer(uid) {
+    delete this.data.players[uid];
+    for (const [id, p] of Object.entries(this.data.picks)) if (p.uid === uid) delete this.data.picks[id];
+    this.save();
+  }
+
+  // Demo only: fill the league with made-up players who pick every game that has teams.
+  seed(events, season) {
+    const names = ['Tailgate Tom', 'Two-Point Tina', 'Option Oscar', 'Fight Song Fran', 'Blitz Bev', 'Hail Mary Hank', 'Redshirt Rae'];
+    for (const name of names) {
+      if (this.findByName(name)) continue;
+      const uid = 'demo_' + Math.random().toString(36).slice(2, 10);
+      this.data.players[uid] = { name, key: nameKey(name), pin: '0000' };
+      const skill = 0.45 + Math.random() * 0.25;
+      for (const ev of events) {
+        if (!ev.away.id || !ev.home.id || Math.random() < 0.08) continue;
+        let pick = Math.random() < 0.5 ? ev.away.id : ev.home.id;
+        if (ev.winnerId) pick = Math.random() < skill ? ev.winnerId : [ev.away.id, ev.home.id].find(id => id !== ev.winnerId);
+        this.data.picks[`${uid}_${ev.id}`] = { uid, eventId: ev.id, teamId: pick, season };
+      }
+    }
+    this.save();
+  }
+
+  reset() {
+    this.data = { players: {}, picks: {}, session: null };
+    this.setSession(null);
+  }
+}

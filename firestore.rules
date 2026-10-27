@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// Paste this into Firebase console > Firestore Database > Rules, then click Publish.
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      let league = /databases/$(db)/documents/meta/league;
+      return signedIn() && exists(league) && get(league).data.adminUid == request.auth.uid;
+    }
+
+    function game(eventId) {
+      return get(/databases/$(db)/documents/games/$(eventId)).data;
+    }
+
+    // Picks only change before the kickoff time the commissioner synced from ESPN.
+    function beforeKickoff(eventId) {
+      return exists(/databases/$(db)/documents/games/$(eventId))
+        && request.time < game(eventId).kickoff;
+    }
+
+    // League settings. The first signed-in user to claim commissioner gets it, and it can't be
+    // changed from the site afterwards (edit it in the Firebase console if you need to).
+    match /meta/league {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['adminUid'])
+        && request.resource.data.adminUid == request.auth.uid;
+    }
+
+    match /players/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'joined'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 20;
+      allow delete: if isAdmin();
+    }
+
+    // Trusted kickoff times + teams, written only by the commissioner's browser.
+    match /games/{eventId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // One doc per player per game: "{uid}_{eventId}".
+    match /picks/{pickId} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'eventId', 'teamId', 'season', 'updated'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.eventId is string
+        && pickId == request.auth.uid + '_' + request.resource.data.eventId
+        && beforeKickoff(request.resource.data.eventId)
+        && request.resource.data.teamId in game(request.resource.data.eventId).teams;
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && beforeKickoff(resource.data.eventId);
+    }
+  }
+}
