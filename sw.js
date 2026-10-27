@@ -1,19 +1,19 @@
 // Service worker: instant opens for the Home Screen app, and push notifications.
 //
 // Caching (this site's own files, plus Google Fonts):
-//   - pages, scripts, styles, manifest: network first, so a deploy shows up on the next open; the
+//   - pages, scripts, styles: network first, so a deploy shows up on the next open; the
 //     saved copy only when the network fails or takes longer than WAIT_MS (a stadium dead spot).
-//   - images (icons, bowl logos) and fonts: the saved copy at once, refreshed in the background.
+//   - images (bowl logos) and fonts: the saved copy at once, refreshed in the background.
 //   - everything else (ESPN, Firebase, the notification Worker) goes straight to the network.
 //
 // Notifications: the Worker (worker/src/index.js) sends them; this shows them, and a tap opens
 // (or focuses) the site on the page the notification is about.
 
-const CACHE = 'bowlpool-v2';
+const CACHE = 'bowlpool-v3';
 const WAIT_MS = 2500;
 const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 const CORE = ['./', 'index.html', 'css/styles.css', 'js/app.js', 'js/config.js', 'js/espn.js', 'js/store.js',
-  'js/race.js', 'js/bowl-logos.js', 'js/install.js', 'js/push.js', 'site.webmanifest?v=2', 'icons/icon-192.png?v=2', 'icons/apple-touch-icon.png?v=2'];
+  'js/race.js', 'js/bowl-logos.js', 'js/install.js', 'js/push.js'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -66,6 +66,9 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   if (FONTS.test(req.url)) return e.respondWith(cacheFirst(e));
   if (url.origin !== self.location.origin) return;
+  // Home Screen icons and the manifest skip the worker: iOS shows a plain letter instead of the
+  // icon when a service worker answers its icon request.
+  if (url.pathname.includes('/icons/') || url.pathname.endsWith('.webmanifest')) return;
   if (/\.(png|jpe?g|webp|svg|gif|ico)$/i.test(url.pathname)) return e.respondWith(cacheFirst(e));
   e.respondWith(networkFirst(e));
 });
