@@ -9,11 +9,11 @@
 // Notifications: the Worker (worker/src/index.js) sends them; this shows them, and a tap opens
 // (or focuses) the site on the page the notification is about.
 
-const CACHE = 'bowlpool-v1';
+const CACHE = 'bowlpool-v2';
 const WAIT_MS = 2500;
 const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 const CORE = ['./', 'index.html', 'css/styles.css', 'js/app.js', 'js/config.js', 'js/espn.js', 'js/store.js',
-  'js/race.js', 'js/bowl-logos.js', 'js/install.js', 'js/push.js', 'site.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
+  'js/race.js', 'js/bowl-logos.js', 'js/install.js', 'js/push.js', 'site.webmanifest?v=2', 'icons/icon-192.png?v=2', 'icons/apple-touch-icon.png?v=2'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -77,7 +77,7 @@ self.addEventListener('push', e => {
   try { msg = e.data ? e.data.json() : {}; } catch { msg = { body: e.data?.text() }; }
   e.waitUntil(self.registration.showNotification(msg.title || 'CFB Bowl Pickems', {
     body: msg.body || '',
-    icon: new URL('icons/icon-192.png', self.registration.scope).href,
+    icon: new URL('icons/icon-192.png?v=2', self.registration.scope).href,
     tag: msg.tag,
     renotify: !!msg.tag,
     data: { url: new URL(msg.url || './', self.registration.scope).href },
