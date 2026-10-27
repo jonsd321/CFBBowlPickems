@@ -158,6 +158,11 @@ class FirebaseStore {
     return this.a.signOut(this.auth);
   }
 
+  // Proves to the notification Worker which player is asking.
+  idToken() {
+    return this.auth.currentUser ? this.auth.currentUser.getIdToken() : Promise.resolve(null);
+  }
+
   subscribe(season, cb, onError) {
     const { collection, query, where, onSnapshot, doc } = this.f;
     const s = { players: [], picks: [], games: {}, adminUid: null };

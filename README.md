@@ -43,6 +43,45 @@ Open http://localhost:8000. With no Firebase config the site runs in **demo mode
 2. In the repo, go to **Settings → Pages → Build and deployment**, choose **Deploy from a branch**, pick `main` and `/ (root)`, then save.
 3. The site goes live at `https://<you>.github.io/<repo>/` within a minute or two.
 
+## Push notifications (Cloudflare Worker, free)
+
+Players can turn on notifications from the **Me** tab. They get:
+
+- **Pick reminders** about an hour before kickoff, for games they haven't picked.
+- **Results** when each game goes final, with whether their pick was right.
+- **A daily recap** after each day's last game: their record that day, their place, and points back of 1st.
+
+The site's service worker (`sw.js`) shows the notifications. A small Cloudflare Worker (`worker/`) stores each device's subscription and checks ESPN and the picks every 5 minutes. Deploy it **before the first bowl game**: the recap standings count games that finish after the Worker starts.
+
+You need [Node.js](https://nodejs.org) (for `npx`) and a free Cloudflare account. In a terminal:
+
+```
+cd C:\Users\jdann\bowl-pool\worker
+npx wrangler login
+npx wrangler kv namespace create SUBS
+```
+
+1. `wrangler login` opens a browser to sign in to (or create) your Cloudflare account.
+2. The `kv namespace create` command prints an `id`. Paste it into `worker/wrangler.toml` in place of `PASTE_KV_NAMESPACE_ID_HERE`.
+3. Upload the private push key (it was generated into `worker/.vapid-private.json`, which git ignores):
+   ```
+   type .vapid-private.json | npx wrangler secret put VAPID_PRIVATE_JWK
+   ```
+4. Deploy:
+   ```
+   npx wrangler deploy
+   ```
+   It prints the Worker's address, like `https://cfb-bowl-pickems-push.<your-name>.workers.dev`.
+5. Paste that address into `js/config.js` as `push.workerUrl`, then commit and push the site. The **Notifications** section appears on the Me tab.
+6. On your phone, open the Me tab, tap **Turn on notifications**, then **Send a test**.
+
+Notes:
+
+- **iPhone:** web notifications only work in the Home Screen app (iOS 16.4 or later). The Me tab tells iPhone users to add the site to their Home Screen first.
+- **Watching it run:** `npx wrangler tail` (in the `worker` folder) streams the Worker's logs.
+- **Changing the Worker:** edit `worker/src/`, then `npx wrangler deploy` again. The site's push key must match `VAPID_PUBLIC_KEY` in `wrangler.toml`. If you ever regenerate the keys (`node worker/scripts/generate-vapid.mjs --force`), update both places, and every player has to turn notifications on again.
+- **Free plan limits:** the Worker fetches only yesterday's and today's games, and writes to storage only when it sends something, to stay well within Cloudflare's free allowances.
+
 ## How it works
 
 | Piece | Where |

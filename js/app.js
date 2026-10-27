@@ -3,6 +3,7 @@ import { fetchBowls } from './espn.js';
 import { createStore, nameKey } from './store.js';
 import { headToHead, raceStatus } from './race.js';
 import { bowlLogo, PLAYOFF_LOGO } from './bowl-logos.js';
+import { pushConfigured, pushSupport, registerServiceWorker, currentSubscription, enablePush, disablePush, updatePrefs, loadPrefs, sendTest } from './push.js';
 
 const params = new URLSearchParams(location.search);
 const SEASON = Number(params.get('season')) || CONFIG.season;
@@ -26,6 +27,7 @@ const state = {
   confirmRemove: null,
   raceTarget: null, // uid picked in the "Your race" panel
   raceShowOpen: false,
+  push: { checked: false, checking: false, on: false, busy: false, error: null }, // this device's notifications
 };
 
 let store;
@@ -664,9 +666,81 @@ function renderMe() {
           <div><b>${me.max}</b><small>Max possible</small></div>
         </div>` : ''}
       ${todo ? `<button class="teaser" data-action="filter" data-filter="todo"><div><b>${plural(todo, 'game')} need a pick</b><small>Tap to see them on the Bowls page</small></div><span>›</span></button>` : ''}
+      ${renderNotifications()}
       <h2 class="label">Your picks<span>${picked} of ${pickable.length}</span></h2>
       ${state.espnLoaded ? `<ul class="pd-list">${pickItems(state.events, mine, true)}</ul>` : `<div class="empty"><div class="spinner"></div>Loading games...</div>`}
     </section>`;
+}
+
+const NOTIFICATION_TYPES = [
+  ['reminders', 'Pick reminders', "About an hour before kickoff, if you haven't picked that game yet."],
+  ['results', 'Game results', 'When each game goes final, with whether your pick was right.'],
+  ['recap', 'Daily recap', "After each day's last game: your record that day, your place, and how far back of 1st you are."],
+];
+
+function renderNotifications() {
+  if (!pushConfigured()) return '';
+  const p = state.push;
+  const support = pushSupport();
+  if (store.mode !== 'firebase') {
+    return `<section class="panel"><h2>Notifications</h2><p class="muted">Notifications work on the live league, not in demo mode.</p></section>`;
+  }
+  if (support === 'ok' && !p.checked) refreshPush();
+
+  let body;
+  if (support === 'ios-install') {
+    body = `<p>On iPhone, notifications only work in the Home Screen app. Add this site to your Home Screen (Share, then Add to Home Screen), open it from there, and turn them on here.</p>`;
+  } else if (support === 'unsupported') {
+    body = `<p class="muted">This browser can't receive notifications from websites.</p>`;
+  } else if (support === 'denied') {
+    body = `<p>Notifications are blocked for this site. Allow them in your browser or phone settings, then reload the page.</p>`;
+  } else if (!p.checked) {
+    body = `<p class="muted">Checking this device...</p>`;
+  } else if (!p.on) {
+    body = `<p>Get a heads-up before games you haven't picked, results as games finish, and where you stand after each day.</p>
+      <div><button class="btn primary" data-action="push-on" ${p.busy ? 'disabled' : ''}><span>${p.busy ? 'Turning on...' : 'Turn on notifications'}</span></button></div>`;
+  } else {
+    const prefs = loadPrefs();
+    body = `<div class="toggles">${NOTIFICATION_TYPES.map(([key, title, desc]) => `
+        <label class="toggle"><input type="checkbox" id="pref-${key}" data-pref="${key}" ${prefs[key] ? 'checked' : ''}>
+          <span class="switch" aria-hidden="true"></span><span class="grow"><b>${title}</b><small>${desc}</small></span></label>`).join('')}
+      </div>
+      <div class="row">
+        <button class="btn small" data-action="push-test" ${p.busy ? 'disabled' : ''}><span>Send a test</span></button>
+        <button class="btn ghost small" data-action="push-off" ${p.busy ? 'disabled' : ''}><span>Turn off on this device</span></button>
+      </div>`;
+  }
+  return `
+    <section class="panel">
+      <div class="panel-head"><h2>Notifications</h2>${p.on ? '<span class="status alive">On</span>' : ''}</div>
+      ${body}
+      ${p.error ? `<p class="form-error">${esc(p.error)}</p>` : ''}
+    </section>`;
+}
+
+async function refreshPush() {
+  if (state.push.checking) return;
+  state.push.checking = true;
+  try { state.push.on = !!(await currentSubscription()); } catch { state.push.on = false; }
+  Object.assign(state.push, { checked: true, checking: false });
+  render();
+}
+
+// Runs a notification action with the player's sign-in token, showing errors in the panel.
+async function pushAction(fn, done) {
+  Object.assign(state.push, { busy: true, error: null });
+  render();
+  try {
+    const token = await store.idToken();
+    if (!token) throw new Error('Sign in again to change notifications.');
+    const result = await fn(token);
+    done?.(result);
+  } catch (err) {
+    state.push.error = err.message;
+  } finally {
+    state.push.busy = false;
+    render();
+  }
 }
 
 function renderPlayerDialog(uid) {
@@ -912,6 +986,12 @@ async function handleClick(e) {
       return render();
     }
     case 'race-open': state.raceShowOpen = true; return render();
+    case 'push-on':
+      return pushAction(enablePush, () => { state.push.on = true; toast('Notifications are on'); });
+    case 'push-off':
+      return pushAction(disablePush, () => { state.push.on = false; toast('Notifications are off on this device'); });
+    case 'push-test':
+      return pushAction(sendTest, r => toast(r.sent ? `Test sent to ${plural(r.sent, 'device')}` : 'No devices accepted the test'));
     case 'claim-admin':
       try {
         await store.claimAdmin(state.user.uid);
@@ -968,7 +1048,15 @@ async function main() {
     return;
   }
 
+  registerServiceWorker();
   document.addEventListener('click', handleClick);
+  // Notification type switches on the Me page.
+  document.addEventListener('change', e => {
+    const input = e.target.closest('input[data-pref]');
+    if (!input) return;
+    const prefs = { ...loadPrefs(), [input.dataset.pref]: input.checked };
+    pushAction(token => updatePrefs(prefs, token));
+  });
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.matches('tr[data-action]')) handleClick(e);
   });

@@ -1,0 +1,27 @@
+# Cloudflare Worker that sends CFB Bowl Pickems push notifications. Setup steps: README.md,
+# "Push notifications".
+name = "cfb-bowl-pickems-push"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Check for reminders, results and recaps every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Holds each player's devices and what's already been sent. Create it with
+#   npx wrangler kv namespace create SUBS
+# and paste the id it prints here.
+[[kv_namespaces]]
+binding = "SUBS"
+id = "1b425e5f334b4db6b8364c56065b575d"
+
+[vars]
+FIREBASE_PROJECT_ID = "cfb-bowl-pool-70c3f"
+ESPN_GROUP = "80"
+SITE_URL = "https://jonsd321.github.io/CFBBowlPickems/"
+# Pages allowed to sign devices up (the live site, plus local testing).
+ALLOWED_ORIGINS = "https://jonsd321.github.io,http://localhost:8000,http://127.0.0.1:8000"
+# Public half of the push key pair (worker/scripts/generate-vapid.mjs). The private half is the
+# VAPID_PRIVATE_JWK secret: npx wrangler secret put VAPID_PRIVATE_JWK
+VAPID_PUBLIC_KEY = "BDPT2xfgE70KO2JNaetrvPqQwK6YcP_B7j9aAt_77GJl21jQDK3kfAitozuCkDDlYyjQBJRQ8kEkYhtk99_4PqA"
+VAPID_SUBJECT = "https://jonsd321.github.io/CFBBowlPickems/"

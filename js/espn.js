@@ -8,10 +8,22 @@ export async function fetchBowls(season, group) {
   if (group) params.set('groups', String(group));
   const res = await fetch(`${SCOREBOARD}?${params}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`ESPN returned ${res.status}`);
-  const data = await res.json();
+  return parseScoreboard(await res.json());
+}
+
+// Shared with the notification Worker (worker/src/index.js), which fetches one day at a time.
+export function parseScoreboard(data) {
   return (data.events || [])
     .map(parseEvent)
     .sort((a, b) => a.kickoff - b.kickoff || a.title.localeCompare(b.title));
+}
+
+// One calendar day of games (yyyymmdd). Without seasontype ESPN returns just that day, so this is
+// a fraction of the full-season payload; callers keep postseason games via ev.seasonType === 3.
+export function scoreboardDayUrl(day, group) {
+  const params = new URLSearchParams({ dates: day, limit: '300' });
+  if (group) params.set('groups', String(group));
+  return `${SCOREBOARD}?${params}`;
 }
 
 // "College Football Playoff Quarterfinal at the Goodyear Cotton Bowl Classic"
@@ -58,6 +70,7 @@ function parseEvent(e) {
   const completed = !!status.completed;
   return {
     id: String(e.id),
+    seasonType: e.season?.type ?? 3,
     title,
     round,
     cfp: !!round,

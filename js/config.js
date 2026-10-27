@@ -24,4 +24,12 @@ export const CONFIG = {
     projectId: 'cfb-bowl-pool-70c3f',
     appId: '1:328377190979:web:03234eaf3128f6616ae2f6',
   },
+
+  // Push notifications (README > Push notifications). workerUrl is printed when you deploy the
+  // Worker; leave it empty to hide the Notifications section. The public key must match
+  // VAPID_PUBLIC_KEY in worker/wrangler.toml.
+  push: {
+    workerUrl: '',
+    vapidPublicKey: 'BDPT2xfgE70KO2JNaetrvPqQwK6YcP_B7j9aAt_77GJl21jQDK3kfAitozuCkDDlYyjQBJRQ8kEkYhtk99_4PqA',
+  },
 };

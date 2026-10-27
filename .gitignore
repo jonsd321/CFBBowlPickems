@@ -1,0 +1,6 @@
+# Push notification secrets and Worker tooling (never commit)
+worker/.vapid-private.json
+worker/.dev.vars
+worker/.wrangler/
+worker/node_modules/
+node_modules/
