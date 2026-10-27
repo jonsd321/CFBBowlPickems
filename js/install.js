@@ -63,7 +63,7 @@ function render() {
   card.dataset.arrow = canInstall ? 'none' : s.arrow;
   card.innerHTML = `
     <div class="a2hs-row">
-      <img class="a2hs-icon" src="icons/apple-touch-icon.png?v=2" alt="">
+      <img class="a2hs-icon" src="icons/apple-touch-icon-180.png" alt="">
       <div class="a2hs-txt"><b>Add CFB Bowl Pickems to your Home Screen</b><small>Opens full screen, straight to your picks.</small></div>
       <button class="a2hs-x" type="button" aria-label="Don't show this for 30 days">✕</button>
     </div>
