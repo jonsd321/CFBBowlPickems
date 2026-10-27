@@ -158,6 +158,9 @@ class FirebaseStore {
     try {
       await setDoc(doc(this.db, 'meta', 'league'), { adminUid: uid });
     } catch (err) {
+      if (err?.code === 'permission-denied') {
+        throw new Error('Someone else is already the commissioner. To change it, delete the meta/league document in the Firebase console and claim again.');
+      }
       throw friendly(err);
     }
   }

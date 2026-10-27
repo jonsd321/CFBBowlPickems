@@ -24,10 +24,12 @@ service cloud.firestore {
     }
 
     // League settings. The first signed-in user to claim commissioner gets it, and it can't be
-    // changed from the site afterwards (edit it in the Firebase console if you need to).
+    // changed from the site afterwards. To hand it to someone else, delete this document in the
+    // Firebase console (an empty document with no adminUid also counts as unclaimed).
     match /meta/league {
       allow read: if true;
-      allow create: if signedIn()
+      allow create, update: if signedIn()
+        && (resource == null || !('adminUid' in resource.data))
         && request.resource.data.keys().hasOnly(['adminUid'])
         && request.resource.data.adminUid == request.auth.uid;
     }
