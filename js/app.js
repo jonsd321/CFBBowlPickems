@@ -863,8 +863,21 @@ async function submitAuth(e) {
   state.authBusy = true;
   try {
     if (form.dataset.mode === 'join') {
-      if (nameTaken(data.get('name'))) throw new Error('That name is taken. Sign in instead, or choose a different name.');
-      await store.join(data.get('name'), data.get('password'));
+      // Returning players on a new device often type their name and password on the Join tab.
+      // If the name is already in the pool, try signing them in with what they typed.
+      const taken = nameTaken(data.get('name'));
+      try {
+        if (taken) throw Object.assign(new Error('taken'), { code: 'auth/email-already-in-use' });
+        await store.join(data.get('name'), data.get('password'));
+      } catch (joinErr) {
+        if (joinErr.code !== 'auth/email-already-in-use' && !/taken/i.test(joinErr.message)) throw joinErr;
+        try {
+          await store.signIn(data.get('name'), data.get('password'));
+        } catch {
+          setAuthMode('signin');
+          throw new Error('That name is already in the pool. If it\'s yours, enter the password or PIN you joined with.');
+        }
+      }
     } else {
       await store.signIn(data.get('name'), data.get('password'));
     }
