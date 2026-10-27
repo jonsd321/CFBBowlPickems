@@ -130,7 +130,7 @@ code { font-size: 0.9em; background: var(--panel2); padding: 1px 5px; border-rad
 
 /* ---------- Filter chips ---------- */
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chips.sticky { position: sticky; top: 0; z-index: 5; margin-inline: -16px; padding: 10px 16px; background: rgba(9, 12, 22, 0.94); backdrop-filter: blur(6px); }
+.bowls-top { position: sticky; top: 0; z-index: 5; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-inline: -16px; padding: 10px 16px; background: rgba(9, 12, 22, 0.94); backdrop-filter: blur(6px); }
 .chip {
   flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 13px; transform: skewX(-12deg);
   background: var(--panel); font: 700 14px/1 var(--cond); letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
@@ -460,7 +460,7 @@ body.has-owe .a2hs { bottom: calc(82px + var(--tabbar-h) + env(safe-area-inset-b
   #owe { position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); z-index: 15; padding: 0 10px 8px; }
   .owe { box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4); }
   body.has-owe { padding-bottom: calc(var(--tabbar-h) + 70px + env(safe-area-inset-bottom)); }
-  .chips.sticky { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .bowls-top .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 
   .hero-sides { grid-template-columns: 1fr; min-height: 0; }
   .hero-half { padding: 14px 16px; min-height: 88px; }
@@ -499,3 +499,28 @@ body.has-owe .a2hs { bottom: calc(82px + var(--tabbar-h) + env(safe-area-inset-b
 .tb-note { flex-basis: 100%; margin: 0; color: var(--dim); font-size: 14px; }
 .tb-note strong { color: var(--hot); }
 .tb-note .bad { color: var(--lost); font-weight: 600; }
+
+/* Bowls by day: a strip of game days, and one page per day that swipes sideways */
+.daynav { display: flex; align-items: stretch; gap: 6px; }
+.day-arrow { flex: none; width: 34px; border-radius: var(--r); background: var(--panel); color: var(--hot); font: italic 800 28px/1 var(--cond); }
+.day-arrow:hover:not(:disabled) { background: var(--panel2); }
+.day-arrow:disabled { opacity: 0.25; cursor: default; }
+.daystrip { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.daystrip::-webkit-scrollbar { display: none; }
+.dpill { flex: none; display: grid; justify-items: center; gap: 2px; width: 66px; padding: 7px 4px 7px; border-radius: var(--r); background: var(--panel); color: var(--white); }
+.dpill small, .dpill span { font: 700 11px/1 var(--cond); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.dpill b { font: italic 800 26px/1 var(--cond); font-variant-numeric: tabular-nums; }
+.dmark { margin-top: 3px; font: italic 800 10.5px/1 var(--cond); letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+.dmark.need { color: var(--hot); }
+.dmark.live { color: var(--red); }
+.dmark.live::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
+.dpill.past:not(.is-active) b { color: var(--dim); }
+.dpill.today small { color: var(--hot); }
+.dpill.is-active { background: var(--hot); color: var(--night); }
+.dpill.is-active small, .dpill.is-active span, .dpill.is-active .dmark { color: var(--night); }
+.dpill.is-active .dmark.live::before { background: var(--night); }
+.pager { min-width: 0; display: flex; align-items: flex-start; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; transition: height 0.2s ease; }
+.pager::-webkit-scrollbar { display: none; }
+.page { flex: 0 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; scroll-snap-align: start; scroll-snap-stop: always; }
+@media (prefers-reduced-motion: reduce) { .pager { transition: none; } }
+.page > .label { padding-right: 6px; }

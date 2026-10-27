@@ -25,6 +25,7 @@ const state = {
   pending: new Map(), // eventId -> { teamId, token } while a save is in flight
   expanded: new Set(), // event ids with the "who picked what" list open
   filter: 'all',
+  day: null, // day shown on the Bowls page (dayKey); null = today if games remain, else the next game day
   confirmRemove: null,
   raceTarget: null, // uid picked in the "Your race" panel
   raceShowOpen: false,
@@ -218,7 +219,11 @@ function render() {
     : renderBowls();
   // Rebuilding the page while someone's typing in the tiebreaker would close their keyboard; the
   // next render after they leave the field catches up.
-  if (document.activeElement?.id !== 'tb-input') $('#view').innerHTML = html;
+  if (document.activeElement?.id !== 'tb-input' && !$('#pager')?.dataset.moving) {
+    $('#view').innerHTML = html;
+    $('#pager')?.addEventListener('scroll', onPagerScroll, { passive: true });
+    syncPager();
+  }
   const owe = view === 'bowls' ? renderOwe() : '';
   setHTML($('#owe'), owe);
   document.body.classList.toggle('has-owe', !!owe);
@@ -313,8 +318,8 @@ function renderBowls() {
   ];
   if (!filters.some(([k]) => k === state.filter)) state.filter = 'all';
 
-  // Live games lead as the hero on All and Live; they aren't repeated in the day lists.
-  const showHero = (state.filter === 'all' || state.filter === 'live') && live.length;
+  // Live games lead as the hero on the Live filter. On All they lead their day's page.
+  const showHero = state.filter === 'live' && live.length;
   const shown = state.events.filter(ev => ({
     all: ev.state !== 'in',
     todo: pickStatus(ev) === 'open' && !mine.has(ev.id),
@@ -336,19 +341,149 @@ function renderBowls() {
 
   return `
     ${join}
-    ${showHero ? `<section class="stack"><h2 class="label">Live now</h2><div class="heroes ${live.length > 1 ? 'two' : ''}">${live.map(ev => heroCard(ev, mine)).join('')}</div></section>` : ''}
     <div class="stack">
-      <div class="chips sticky" role="group" aria-label="Filter games">
-        ${filters.map(([k, label]) => `<button class="chip ${state.filter === k ? 'is-active' : ''} ${k === 'todo' && counts.todo ? 'alert' : ''}" data-action="filter" data-filter="${k}"><span>${label}<em> ${counts[k]}</em></span></button>`).join('')}
+      <div class="bowls-top">
+        <div class="chips" role="group" aria-label="Filter games">
+          ${filters.map(([k, label]) => `<button class="chip ${state.filter === k ? 'is-active' : ''} ${k === 'todo' && counts.todo ? 'alert' : ''}" data-action="filter" data-filter="${k}"><span>${label}<em> ${counts[k]}</em></span></button>`).join('')}
+        </div>
+        ${state.filter === 'all' ? dayStrip(mine) : ''}
       </div>
-      ${groups.length ? groups.map(g => `
+      ${showHero ? `<section class="stack"><h2 class="label">Live now</h2><div class="heroes ${live.length > 1 ? 'two' : ''}">${live.map(ev => heroCard(ev, mine)).join('')}</div></section>` : ''}
+      ${state.filter === 'all' ? dayPager(mine) : groups.length ? groups.map(g => `
         <section class="day">
           <h2 class="label">${esc(g.key)}${dayNote(g.events, mine)}</h2>
           <div class="tiles">${g.events.map(ev => gameTile(ev, mine)).join('')}</div>
         </section>`).join('')
-      : `<div class="empty">${state.filter === 'todo' ? "You're all caught up. Every open game has a pick." : state.filter === 'live' ? 'No games are live right now.' : 'Nothing here.'}</div>`}
-      ${state.filter === 'all' || (state.filter === 'todo' && state.user && tbFor(state.user.uid) == null) ? tiebreakerCard() : ''}
+      : showHero ? '' : `<div class="empty">${state.filter === 'todo' ? "You're all caught up. Every open game has a pick." : state.filter === 'live' ? 'No games are live right now.' : 'Nothing here.'}</div>`}
+      ${(state.filter === 'upcoming' && titleGame()?.state === 'pre') || (state.filter === 'todo' && state.user && tbFor(state.user.uid) == null) ? tiebreakerCard() : ''}
     </div>`;
+}
+
+/* ---------- Bowls by day ---------- */
+
+// Every game day, in order: { key, start, events }.
+function gameDays() {
+  const days = [];
+  for (const ev of state.events) {
+    const key = dayKey(ev);
+    if (days.at(-1)?.key !== key) days.push({ key, start: ev.kickoff, events: [] });
+    days.at(-1).events.push(ev);
+  }
+  return days;
+}
+
+// Today if it still has games to play, otherwise the next day with a game (the last day once
+// the season's over).
+function defaultDay(days) {
+  return (days.find(d => d.events.some(ev => ev.state !== 'post' && !ev.canceled)) || days.at(-1))?.key;
+}
+
+function currentDay(days) {
+  return days.some(d => d.key === state.day) ? state.day : defaultDay(days);
+}
+
+const todayKey = () => dayKey({ kickoff: Date.now() });
+
+function dayStrip(mine) {
+  const days = gameDays();
+  const active = currentDay(days);
+  const today = todayKey();
+  const i = days.findIndex(d => d.key === active);
+  const pill = d => {
+    const date = d.events[0];
+    const part = opts => new Intl.DateTimeFormat(undefined, { ...opts, timeZone: date.timeTbd ? 'America/New_York' : undefined }).format(date.kickoff);
+    const live = d.events.some(ev => ev.state === 'in');
+    const done = d.events.every(ev => ev.state === 'post' || ev.canceled);
+    const need = state.user ? d.events.filter(ev => pickStatus(ev) === 'open' && !mine.has(ev.id)).length : 0;
+    const mark = live ? '<i class="dmark live">Live</i>'
+      : need ? `<i class="dmark need">${need} to pick</i>`
+      : done ? '<i class="dmark done">Final</i>'
+      : `<i class="dmark">${plural(d.events.length, 'game')}</i>`;
+    return `<button class="dpill ${d.key === active ? 'is-active' : ''} ${d.key === today ? 'today' : ''} ${done ? 'past' : ''}" role="tab" aria-selected="${d.key === active}" data-action="day" data-day="${esc(d.key)}">
+      <small>${d.key === today ? 'Today' : esc(part({ weekday: 'short' }))}</small><b>${esc(part({ day: 'numeric' }))}</b><span>${esc(part({ month: 'short' }))}</span>${mark}</button>`;
+  };
+  return `
+    <div class="daynav">
+      <button class="day-arrow" data-action="day-step" data-step="-1" aria-label="Previous day" ${i <= 0 ? 'disabled' : ''}>‹</button>
+      <div class="daystrip" role="tablist" aria-label="Game days">${days.map(pill).join('')}</div>
+      <button class="day-arrow" data-action="day-step" data-step="1" aria-label="Next day" ${i >= days.length - 1 ? 'disabled' : ''}>›</button>
+    </div>`;
+}
+
+// One page per day, side by side; the pager scrolls (and snaps) sideways, so a swipe changes days.
+function dayPager(mine) {
+  const days = gameDays();
+  const title = titleGame();
+  return `
+    <div class="pager" id="pager">
+      ${days.map(d => {
+        const live = d.events.filter(ev => ev.state === 'in');
+        const rest = d.events.filter(ev => ev.state !== 'in');
+        return `
+        <section class="page" data-day="${esc(d.key)}" aria-label="${esc(d.key)}">
+          <h2 class="label">${esc(d.key)}${dayNote(d.events, mine)}</h2>
+          ${live.length ? `<div class="heroes ${live.length > 1 ? 'two' : ''}">${live.map(ev => heroCard(ev, mine)).join('')}</div>` : ''}
+          ${rest.length ? `<div class="tiles">${rest.map(ev => gameTile(ev, mine)).join('')}</div>` : ''}
+          ${title && d.events.includes(title) ? tiebreakerCard() : ''}
+        </section>`;
+      }).join('')}
+    </div>`;
+}
+
+// Called after every render: show the chosen day without animating, size the pager to that page,
+// and keep its pill in view.
+function syncPager({ smooth = false } = {}) {
+  const pager = $('#pager');
+  if (!pager) return;
+  const pages = [...pager.children];
+  const i = Math.max(0, pages.findIndex(p => p.dataset.day === currentDay(gameDays())));
+  pager.scrollTo({ left: i * pager.clientWidth, behavior: smooth ? 'smooth' : 'instant' });
+  markDay(pages[i], smooth);
+}
+
+function markDay(page, smooth = true) {
+  const pager = $('#pager');
+  if (!page || !pager) return;
+  pager.style.height = `${page.offsetHeight}px`;
+  const key = page.dataset.day;
+  document.querySelectorAll('.dpill').forEach(b => {
+    const on = b.dataset.day === key;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-selected', on);
+    if (on) {
+      const strip = b.parentElement;
+      const left = b.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft;
+      strip.scrollTo({ left: left - (strip.clientWidth - b.offsetWidth) / 2, behavior: smooth ? 'smooth' : 'instant' });
+    }
+  });
+  const pills = [...document.querySelectorAll('.dpill')];
+  const at = pills.findIndex(b => b.dataset.day === key);
+  const [prev, next] = document.querySelectorAll('.day-arrow');
+  if (prev) prev.disabled = at <= 0;
+  if (next) next.disabled = at >= pills.length - 1;
+}
+
+// After a swipe settles, remember the day it landed on (no full re-render, so it stays smooth).
+let pagerSettle;
+function onPagerScroll(e) {
+  const pager = e.target;
+  pager.dataset.moving = '1';
+  clearTimeout(pagerSettle);
+  pagerSettle = setTimeout(() => {
+    delete pager.dataset.moving;
+    const page = pager.children[Math.round(pager.scrollLeft / pager.clientWidth)];
+    if (!page || page.dataset.day === currentDay(gameDays())) return markDay(page);
+    state.day = page.dataset.day;
+    markDay(page, true);
+    // A short day after a long one: bring the top of the new day back into view.
+    const top = pager.getBoundingClientRect().top;
+    if (top < 0) window.scrollBy({ top: top - $('.bowls-top').offsetHeight - 8, behavior: 'smooth' });
+  }, 120);
+}
+
+function goToDay(key) {
+  state.day = key;
+  syncPager({ smooth: true });
 }
 
 function tiebreakerCard() {
@@ -1071,7 +1206,7 @@ async function handleClick(e) {
       if (leaving) location.hash = 'bowls';
       render();
       if (leaving) window.scrollTo({ top: 0 });
-      else if (el.closest('#owe')) document.querySelector('.chips.sticky')?.scrollIntoView({ block: 'start' });
+      else if (el.closest('#owe')) document.querySelector('.bowls-top')?.scrollIntoView({ block: 'start' });
       return;
     }
     case 'open-auth': return openAuth('join');
@@ -1086,8 +1221,15 @@ async function handleClick(e) {
       location.hash = 'race';
       return window.scrollTo({ top: 0 });
     case 'refresh': return loadEspn();
+    case 'day': return goToDay(el.dataset.day);
+    case 'day-step': {
+      const days = gameDays();
+      const i = days.findIndex(d => d.key === currentDay(days)) + Number(el.dataset.step);
+      return days[i] && goToDay(days[i].key);
+    }
     case 'go-tiebreaker':
       state.filter = 'all';
+      state.day = titleGame() ? dayKey(titleGame()) : state.day;
       location.hash = 'bowls';
       render();
       return requestAnimationFrame(() => $('#tiebreaker')?.scrollIntoView({ block: 'center' }));
@@ -1187,6 +1329,9 @@ async function main() {
     pushAction(token => updatePrefs(prefs, token));
   });
   document.addEventListener('keydown', e => {
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#pager') && !e.target.closest('input, textarea, dialog')) {
+      $(`.day-arrow[data-step="${e.key === 'ArrowLeft' ? -1 : 1}"]`)?.click();
+    }
     if (e.key === 'Enter' && e.target.matches('tr[data-action]')) handleClick(e);
   });
   $('#auth-form').addEventListener('submit', submitAuth);
@@ -1204,6 +1349,7 @@ async function main() {
     if (b) setAuthMode(b.dataset.mode);
   });
   window.addEventListener('hashchange', render);
+  window.addEventListener('resize', () => syncPager());
 
   store.onUser(user => {
     state.user = user;
