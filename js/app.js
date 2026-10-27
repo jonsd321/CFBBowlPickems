@@ -6,7 +6,7 @@ import { bowlLogo, PLAYOFF_LOGO } from './bowl-logos.js';
 
 const params = new URLSearchParams(location.search);
 const SEASON = Number(params.get('season')) || CONFIG.season;
-const VIEWS = ['bowls', 'leaderboard', 'race', 'commish'];
+const VIEWS = ['bowls', 'leaderboard', 'race', 'commish', 'me'];
 
 const state = {
   events: [],
@@ -185,6 +185,7 @@ function render() {
   document.querySelectorAll('.tab[data-view]').forEach(t => t.classList.toggle('is-active', t.dataset.view === view));
   const html = view === 'leaderboard' ? renderLeaderboard()
     : view === 'race' ? renderRaceView()
+    : view === 'me' ? renderMe()
     : view === 'commish' && !$('#admin-tab').hidden ? renderCommish()
     : renderBowls();
   $('#view').innerHTML = html;
@@ -612,6 +613,61 @@ function renderCommish() {
       </section>` : ''}`;
 }
 
+// One row per game with the player's pick. Other players' picks stay hidden until kickoff.
+function pickItems(events, picks, self) {
+  return events.map(ev => {
+    const t = picks.get(ev.id);
+    const visible = self || started(ev);
+    let pick;
+    if (!t) {
+      const open = pickStatus(ev) === 'open';
+      pick = self && open ? `<button class="link" data-action="filter" data-filter="todo">Pick now</button>`
+        : `<span class="muted">${!hasTeams(ev) && !ev.winnerId ? 'Matchup TBD' : 'No pick'}</span>`;
+    } else if (!visible) pick = `<span class="muted">Hidden until kickoff</span>`;
+    else {
+      const team = teamById(ev, t);
+      const mark = ev.winnerId ? (t === ev.winnerId ? '<span class="mark win">W</span>' : '<span class="mark loss">L</span>') : '';
+      pick = `${team?.logo ? `<img src="${esc(team.logo)}" alt="">` : ''}<span>${esc(team?.abbr || '?')}</span>${mark}`;
+    }
+    const when = ev.state === 'in' ? `<span class="live-dot"></span>${esc(ev.detail)}`
+      : ev.state === 'post' ? 'Final' : ev.timeTbd ? 'Time TBD' : esc(fmtWhen(ev.kickoff));
+    return `<li>${bowlChip(ev, 'sm')}<span class="grow game"><div><b>${esc(ev.title)}</b><small>${hasTeams(ev) ? `${esc(ev.away.abbr)} vs ${esc(ev.home.abbr)} · ` : ''}${when}</small></div></span><span class="pd-pick">${pick}</span></li>`;
+  }).join('');
+}
+
+function renderMe() {
+  if (!state.user) {
+    return `<div class="empty">Join the pool to make picks and see your record here.<br><button class="btn primary" data-action="open-auth"><span>Join / Sign in</span></button></div>`;
+  }
+  const name = playerName(state.user.uid) || '...';
+  const { rows } = standings();
+  const me = rows.find(r => r.uid === state.user.uid);
+  const mine = myPicks();
+  const pickable = state.events.filter(ev => hasTeams(ev) && !ev.canceled);
+  const picked = pickable.filter(ev => mine.has(ev.id)).length;
+  const todo = state.events.filter(ev => pickStatus(ev) === 'open' && !mine.has(ev.id)).length;
+  const played = me ? me.correct + me.wrong : 0;
+
+  return `
+    <section class="stack me-page">
+      <div class="profile">
+        <span class="avatar lg">${esc(initials(name))}</span>
+        <div class="grow"><h2>${esc(name)}</h2>${me ? `<small>${rankLabel(me, rows)} of ${rows.length} · ${me.correct}-${me.wrong}</small>` : ''}</div>
+        <button class="btn ghost small" data-action="sign-out"><span>Sign out</span></button>
+      </div>
+      ${me ? `
+        <div class="stats four">
+          <div><b>${me.correct}-${me.wrong}</b><small>Record</small></div>
+          <div><b>${played ? `${Math.round((me.correct / played) * 100)}%` : '-'}</b><small>Correct</small></div>
+          <div><b>${me.back ? `${me.back}` : '-'}</b><small>Back of 1st</small></div>
+          <div><b>${me.max}</b><small>Max possible</small></div>
+        </div>` : ''}
+      ${todo ? `<button class="teaser" data-action="filter" data-filter="todo"><div><b>${plural(todo, 'game')} need a pick</b><small>Tap to see them on the Bowls page</small></div><span>›</span></button>` : ''}
+      <h2 class="label">Your picks<span>${picked} of ${pickable.length}</span></h2>
+      ${state.espnLoaded ? `<ul class="pd-list">${pickItems(state.events, mine, true)}</ul>` : `<div class="empty"><div class="spinner"></div>Loading games...</div>`}
+    </section>`;
+}
+
 function renderPlayerDialog(uid) {
   const name = playerName(uid) || 'Player';
   const self = uid === state.user?.uid;
@@ -629,19 +685,7 @@ function renderPlayerDialog(uid) {
       : `${plural(h.swing.length, 'swing game')} left`;
     vs = `<button class="vs-line" data-action="race-target" data-uid="${esc(uid)}">You vs ${esc(name)}: ${gap} · ${outlook}<span>Breakdown ›</span></button>`;
   }
-  const items = state.events.map(ev => {
-    const t = picks.get(ev.id);
-    const visible = self || started(ev);
-    let pick;
-    if (!t) pick = `<span class="muted">${pickStatus(ev) === 'open' && self ? 'Not picked yet' : 'No pick'}</span>`;
-    else if (!visible) pick = `<span class="muted">Hidden until kickoff</span>`;
-    else {
-      const team = teamById(ev, t);
-      const mark = ev.winnerId ? (t === ev.winnerId ? '<span class="mark win">W</span>' : '<span class="mark loss">L</span>') : '';
-      pick = `${team?.logo ? `<img src="${esc(team.logo)}" alt="">` : ''}<span>${esc(team?.abbr || '?')}</span>${mark}`;
-    }
-    return `<li>${bowlChip(ev, 'sm')}<span class="grow game"><div><b>${esc(ev.title)}</b><small>${esc(ev.away.abbr)} vs ${esc(ev.home.abbr)}</small></div></span><span class="pd-pick">${pick}</span></li>`;
-  }).join('');
+  const items = pickItems(state.events, picks, self);
   $('#player-dialog').innerHTML = `
     <div class="sheet-head">
       <div><h2>${esc(name)}</h2>${row ? `<p class="muted">${row.correct}-${row.wrong} · ${rankLabel(row, rows)} of ${state.players.length}</p>` : ''}</div>
@@ -761,17 +805,17 @@ async function handleClick(e) {
     case 'pick': return makePick(el.dataset.event, el.dataset.team);
     case 'filter': {
       state.filter = el.dataset.filter;
-      if (currentView() !== 'bowls') location.hash = 'bowls';
+      const leaving = currentView() !== 'bowls';
+      if (leaving) location.hash = 'bowls';
       render();
-      if (el.closest('#owe')) document.querySelector('.chips.sticky')?.scrollIntoView({ block: 'start' });
+      if (leaving) window.scrollTo({ top: 0 });
+      else if (el.closest('#owe')) document.querySelector('.chips.sticky')?.scrollIntoView({ block: 'start' });
       return;
     }
     case 'open-auth': return openAuth('join');
-    case 'me': {
-      if (!state.user) return openAuth('join');
-      renderPlayerDialog(state.user.uid);
-      return $('#player-dialog').showModal();
-    }
+    case 'me':
+      location.hash = 'me';
+      return window.scrollTo({ top: 0 });
     case 'sign-out':
       el.closest('dialog')?.close();
       return store.signOut();
@@ -786,6 +830,10 @@ async function handleClick(e) {
       return render();
     }
     case 'player': {
+      if (el.dataset.uid === state.user?.uid) {
+        location.hash = 'me';
+        return window.scrollTo({ top: 0 });
+      }
       renderPlayerDialog(el.dataset.uid);
       return $('#player-dialog').showModal();
     }

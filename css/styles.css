@@ -302,6 +302,16 @@ button.band:active { filter: brightness(1.2); }
   .sw .pk img { width: 18px; height: 18px; }
 }
 
+/* ---------- Me ---------- */
+.me-page { max-width: 760px; }
+.profile { display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--panel); border-radius: var(--r); box-shadow: inset 4px 0 0 var(--hot); }
+.profile h2 { margin: 0; font: italic 800 30px/1 var(--cond); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile small { display: block; margin-top: 4px; font: 700 14px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.avatar.lg { width: 56px; height: 56px; font-size: 24px; }
+.stats.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 520px) { .stats.four { grid-template-columns: repeat(2, 1fr); } }
+.pd-pick .link { font: italic 800 15px/1 var(--cond); letter-spacing: 0.04em; text-transform: uppercase; }
+
 /* ---------- Panels (Commish) ---------- */
 .panel { display: grid; gap: 12px; padding: 16px 18px; background: var(--panel); border-radius: var(--r); }
 .panel h2 { margin: 0; font: italic 800 26px/1 var(--cond); text-transform: uppercase; }
@@ -357,6 +367,15 @@ button.band:active { filter: brightness(1.2); }
 .toast.show { opacity: 1; transform: translate(-50%, 0) skewX(-12deg); }
 .toast.bad { background: var(--lost); }
 .site-foot { padding-block: 28px; text-align: center; color: var(--dim); font-size: 12px; }
+
+/* ---------- Tablets: tighter header so the tabs and avatar fit ---------- */
+@media (max-width: 1040px) and (min-width: 721px) {
+  .top { gap: 10px; }
+  .tabs { margin-left: 0; gap: 2px; }
+  .tab { padding: 9px 10px; }
+  .tab svg { display: none; }
+  .me > span:not(.avatar), .user-area .btn.ghost { display: none; }
+}
 
 /* ---------- Phones: bottom tab bar, stacked hero ---------- */
 @media (max-width: 720px) {
